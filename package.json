@@ -1,0 +1,28 @@
+{
+  "name": "sistema-banca-avaliativa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de Gestão de Bancas de Projetos — cronômetro sincronizado, rubricas, votação, fechamento e PDF.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run typecheck && npm run build -w web",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w server",
+    "test:e2e": "playwright test",
+    "db:migrate": "npm run db:migrate -w server",
+    "db:seed": "npm run db:seed -w server"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "concurrently": "10.0.6",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

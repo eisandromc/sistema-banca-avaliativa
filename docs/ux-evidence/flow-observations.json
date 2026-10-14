@@ -1,0 +1,53 @@
+{
+  "screens": [
+    {
+      "name": "desktop-professor-admin",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 1407,
+      "tabbar": null
+    },
+    {
+      "name": "desktop-timer",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": null
+    },
+    {
+      "name": "mobile-timer",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 947,
+      "tabbar": null
+    },
+    {
+      "name": "mobile-professor-evaluation",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 3391,
+      "tabbar": null
+    },
+    {
+      "name": "mobile-submit-after-save-error",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 3348,
+      "tabbar": null
+    },
+    {
+      "name": "mobile-after-submit",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 3284,
+      "tabbar": null
+    }
+  ],
+  "errors": [],
+  "bugs": {
+    "submitPreview": "Confirmar envio da avaliação\n\nGrupo 01 — Horta Inteligente com Sensores (projeto fictício)\n\nCritério\tPeso\tNota\nDomínio técnico\t3\t9,0\nFuncionamento da demonstração\t3\t5,0\nOrganização do projeto\t2\t5,0\nRespostas às perguntas\t2\t5,0\n\nIndicação para a feira: Indicar\n\nSubtotal do avaliador: 62 / 100 · pontuação normalizada 62,00 / 100\n\nApós o envio, a ficha não poderá ser editada (política da banca).\n\nRevisar\nConfirmar envio\n×",
+    "submitHttp": 200,
+    "scoreAfterSubmit": "5",
+    "blockedSaveRequests": 2
+  }
+}

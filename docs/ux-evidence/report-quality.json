@@ -1,0 +1,21 @@
+{
+  "schema": "perestroika_artifact_quality_checklist_v1",
+  "instruction_retention": true,
+  "required_content_coverage": true,
+  "unrequested_content_events": 0,
+  "factual_grounding": true,
+  "accessibility_checked": false,
+  "openable": true,
+  "no_overflow": null,
+  "no_clipping": null,
+  "legible": null,
+  "links_valid": true,
+  "overall": "VALIDADO LOCALMENTE: integridade textual e links do relatorio; limites visuais declarados",
+  "evidence_refs": [
+    "AUDITORIA-UX-UI-2026-10-11.md",
+    "ux-evidence/observations.json",
+    "ux-evidence/flow-observations.json",
+    "ux-evidence/context-observations.json"
+  ],
+  "scope": "Qualidade do relatorio Markdown; campos visuais nulos nao indicam aprovacao da aplicacao."
+}

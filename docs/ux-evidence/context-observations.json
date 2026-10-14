@@ -1,0 +1,14 @@
+{
+  "closureBefore": "PI-01 — Plataforma de Monitoramento de Hortas Escolares (fictício)",
+  "closureAfter": "PI-01 — Plataforma de Monitoramento de Hortas Escolares (fictício)",
+  "closureNav": "PI-03 \n▶\nEm andamento\nSistema de Agendamento da Biblioteca (fictício)",
+  "teacherDaysChecked": 0,
+  "teacherReadErrorVisible": 0,
+  "teacherSaveBody": {
+    "days": []
+  },
+  "tabletWidth": {
+    "viewport": 768,
+    "content": 877
+  }
+}

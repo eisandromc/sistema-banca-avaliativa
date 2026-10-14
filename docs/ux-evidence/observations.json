@@ -1,0 +1,258 @@
+{
+  "screens": [
+    {
+      "name": "desktop-overview",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-0",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-1",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-2",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-3",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-4",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-5",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 2747,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-6",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-7",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 1373,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-8",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-9",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-10",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "desktop-tab-11",
+      "width": 1440,
+      "scrollWidth": 1440,
+      "height": 900,
+      "tabbar": {
+        "width": 1408,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-0",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 1365,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-1",
+      "width": 390,
+      "scrollWidth": 444,
+      "height": 1942,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-2",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 864,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-3",
+      "width": 390,
+      "scrollWidth": 453,
+      "height": 1272,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-4",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 1282,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-5",
+      "width": 390,
+      "scrollWidth": 487,
+      "height": 7642,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-6",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 844,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-7",
+      "width": 390,
+      "scrollWidth": 877,
+      "height": 3236,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-8",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 1728,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-9",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 844,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-10",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 844,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    },
+    {
+      "name": "mobile-tab-11",
+      "width": 390,
+      "scrollWidth": 390,
+      "height": 1008,
+      "tabbar": {
+        "width": 358,
+        "scrollWidth": 1668
+      }
+    }
+  ],
+  "errors": [
+    "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Iniciar apresentação', exact: true })\u001b[22m\n\n    at D:\\GitHub\\sistema-banca-avaliativa\\.data\\ux-audit.mjs:38:74"
+  ],
+  "bugs": {}
+}

@@ -23,3 +23,9 @@ export function minutes(sec: number): string {
   const s = sec % 60;
   return s ? `${m} min ${s} s` : `${m} min`;
 }
+
+/** Tamanho de arquivo legível: "850 KB", "2,4 MB". */
+export function fmtBytes(n: number): string {
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  return `${(n / 1024 / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
+}

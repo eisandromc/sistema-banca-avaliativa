@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "db:migrate": "tsx src/db/cli.ts migrate",
-    "db:seed": "tsx src/db/cli.ts seed"
+    "db:admin": "tsx src/db/cli.ts admin"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.3.14",

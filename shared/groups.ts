@@ -59,3 +59,37 @@ export function downloadUrl(url: string): string {
   if (m) return `https://drive.google.com/uc?export=download&id=${m[1]}`;
   return url;
 }
+
+/** Arquivos que podem ser enviados no cadastro do grupo. Só o PDF abre dentro do sistema; os demais são baixados. */
+export type GroupFileKind = 'slides' | 'article';
+export const GROUP_FILE_MAX_BYTES = 25 * 1024 * 1024;
+export const GROUP_FILE_TYPES: Record<GroupFileKind, Record<string, string>> = {
+  slides: {
+    pdf: 'application/pdf',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ppt: 'application/vnd.ms-powerpoint',
+    odp: 'application/vnd.oasis.opendocument.presentation',
+  },
+  article: {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    doc: 'application/msword',
+    odt: 'application/vnd.oasis.opendocument.text',
+  },
+};
+
+/** Extensão do arquivo em minúsculas ("" se não houver). */
+export function fileExtension(name: string): string {
+  const m = /\.([a-z0-9]+)$/i.exec(name.trim());
+  return m ? m[1]!.toLowerCase() : '';
+}
+
+/** Endereço aceito para o repositório: https://github.com/… */
+export function isGithubLink(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return (u.protocol === 'https:' || u.protocol === 'http:') && /^(www\.)?github\.com$/i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}

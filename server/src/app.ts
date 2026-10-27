@@ -16,6 +16,7 @@ import { liveRoutes } from './routes/live.ts';
 import { professorRoutes } from './routes/professor.ts';
 import { closureRoutes } from './routes/closure.ts';
 import { adminRoutes } from './routes/admin.ts';
+import { trashRoutes } from './routes/trash.ts';
 import { realtimeRoutes } from './routes/realtime.ts';
 
 export interface AppContext {
@@ -40,7 +41,7 @@ export async function buildApp(config: AppConfig, opts: { db?: Database; logger?
   if (opts.ticker !== false) timer.startTicker();
 
   const app: FastifyInstance = Fastify({
-    logger: opts.logger ?? config.env !== 'test',
+    logger: opts.logger ?? true,
     trustProxy: false,
     bodyLimit: 1024 * 1024,
   });
@@ -70,7 +71,8 @@ export async function buildApp(config: AppConfig, opts: { db?: Database; logger?
       await api.register(professorRoutes);
       await api.register(closureRoutes);
       await api.register(adminRoutes);
-      api.get('/health', async () => ({ ok: true, db: db.kind, timerSpeed: config.timerSpeed, env: config.env }));
+      await api.register(trashRoutes);
+      api.get('/health', async () => ({ ok: true, db: db.kind, timerSpeed: config.timerSpeed, ambiente: config.ambiente }));
     },
     { prefix: '/api' },
   );

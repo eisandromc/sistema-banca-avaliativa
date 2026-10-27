@@ -26,6 +26,6 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { PORT: String(PORT), TIMER_SPEED: '60', NODE_ENV: 'development' },
+    env: { PORT: String(PORT), TIMER_SPEED: '60' },
   },
 });

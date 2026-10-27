@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../lib/api.ts';
-import type { ProjectInfo } from '../lib/types.ts';
+import type { GroupFile, ProjectInfo } from '../lib/types.ts';
+import { fmtBytes } from '../lib/format.ts';
 import { downloadUrl, embedUrl } from '@shared/groups.ts';
 import { Button, Empty, ErrorBox, Modal, Spinner, useLoad } from './ui.tsx';
 
@@ -19,7 +20,37 @@ export function namesList(names: string[]): string {
   return `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`;
 }
 
-type Viewer = { kind: 'pdf' | 'slides'; url: string } | null;
+/** `download`: endereço para baixar (arquivos enviados ao sistema); sem ele, o link de origem. */
+type Viewer = { kind: 'pdf' | 'slides'; url: string; download?: string } | null;
+
+const isPdf = (f: GroupFile) => f.mime === 'application/pdf';
+const fileDownload = (f: GroupFile) => `${f.url}${f.url.includes('?') ? '&' : '?'}download=1`;
+const fileType = (f: GroupFile) => (/\.([a-z0-9]+)$/i.exec(f.name)?.[1] ?? 'arquivo').toUpperCase();
+
+/** Item da lista de materiais para um arquivo enviado: PDF abre no sistema; os demais são baixados. */
+function FileMaterial({ file, label, viewLabel, kind, onView }: { file: GroupFile; label: string; viewLabel: string; kind: 'pdf' | 'slides'; onView: (v: Viewer) => void }) {
+  return (
+    <li className="material">
+      <span>
+        <span className="material-kind">{label}</span>
+        <span className="small muted">
+          {' '}
+          · {file.name} · {fmtBytes(file.size)}
+        </span>
+      </span>
+      <span className="row gap wrap">
+        {isPdf(file) && (
+          <Button variant="primary" onClick={() => onView({ kind, url: file.url, download: fileDownload(file) })}>
+            {viewLabel}
+          </Button>
+        )}
+        <a className={`btn ${isPdf(file) ? 'btn-secondary' : 'btn-primary'}`} href={fileDownload(file)} download={file.name}>
+          Baixar {fileType(file)}
+        </a>
+      </span>
+    </li>
+  );
+}
 
 /** Modal com resumo, orientadores e materiais do projeto; o PDF e os slides abrem em uma visualização ampla. */
 export function ProjectModal({ groupId, onClose }: { groupId: number; onClose: () => void }) {
@@ -43,7 +74,7 @@ export function ProjectModal({ groupId, onClose }: { groupId: number; onClose: (
 }
 
 function ProjectDetails({ g, onView }: { g: ProjectInfo; onView: (v: Viewer) => void }) {
-  const hasMaterials = !!(g.pdfUrl || g.slidesUrl || g.projectUrl);
+  const hasMaterials = !!(g.pdfUrl || g.slidesUrl || g.projectUrl || g.githubUrl || g.slidesFile || g.articleFile);
   return (
     <div className="project">
       <div className="project-head" style={{ borderColor: g.color }}>
@@ -84,9 +115,10 @@ function ProjectDetails({ g, onView }: { g: ProjectInfo; onView: (v: Viewer) => 
           <Empty>Nenhum material cadastrado para este grupo.</Empty>
         ) : (
           <ul className="material-list">
+            {g.slidesFile && <FileMaterial file={g.slidesFile} label="Apresentação (slides)" viewLabel="Ver apresentação" kind="slides" onView={onView} />}
             {g.slidesUrl && (
               <li className="material">
-                <span className="material-kind">Apresentação (slides)</span>
+                <span className="material-kind">Apresentação (slides){g.slidesFile && ' — link'}</span>
                 <span className="row gap wrap">
                   <Button variant="primary" onClick={() => onView({ kind: 'slides', url: g.slidesUrl! })}>
                     Ver apresentação
@@ -97,9 +129,10 @@ function ProjectDetails({ g, onView }: { g: ProjectInfo; onView: (v: Viewer) => 
                 </span>
               </li>
             )}
+            {g.articleFile && <FileMaterial file={g.articleFile} label="Artigo" viewLabel="Ler artigo" kind="pdf" onView={onView} />}
             {g.pdfUrl && (
               <li className="material">
-                <span className="material-kind">Documento em PDF</span>
+                <span className="material-kind">{g.articleFile ? 'Artigo — link' : 'Documento em PDF'}</span>
                 <span className="row gap wrap">
                   <Button variant="primary" onClick={() => onView({ kind: 'pdf', url: g.pdfUrl! })}>
                     Ler PDF
@@ -115,6 +148,14 @@ function ProjectDetails({ g, onView }: { g: ProjectInfo; onView: (v: Viewer) => 
                 <span className="material-kind">Link de acesso ao projeto</span>
                 <a className="btn btn-secondary" href={g.projectUrl} target="_blank" rel="noopener noreferrer">
                   Acessar projeto ↗
+                </a>
+              </li>
+            )}
+            {g.githubUrl && (
+              <li className="material">
+                <span className="material-kind">Repositório no GitHub</span>
+                <a className="btn btn-secondary" href={g.githubUrl} target="_blank" rel="noopener noreferrer">
+                  Abrir no GitHub ↗
                 </a>
               </li>
             )}
@@ -137,8 +178,8 @@ function MaterialViewer({ viewer, title, onClose }: { viewer: NonNullable<Viewer
         <div className="viewer-bar">
           <span className="small muted">Se o conteúdo não aparecer, o site de origem pode bloquear a exibição dentro de outras páginas.</span>
           <span className="row gap wrap">
-            {viewer.kind === 'pdf' && (
-              <a className="btn btn-secondary" href={downloadUrl(viewer.url)} download target="_blank" rel="noopener noreferrer">
+            {(viewer.kind === 'pdf' || viewer.download) && (
+              <a className="btn btn-secondary" href={viewer.download ?? downloadUrl(viewer.url)} download target="_blank" rel="noopener noreferrer">
                 Baixar PDF
               </a>
             )}

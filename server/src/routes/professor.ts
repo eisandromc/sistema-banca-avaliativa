@@ -1,10 +1,11 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { requireAdmin, requireDayMember, requireUser } from '../auth/session.ts';
 import { notFound, paramId } from '../http.ts';
 import { getDaySchedule, resolveAssignments } from '../services/schedule.ts';
 import { ensureEvaluations, getEvaluationForm, saveDraft, submitEvaluation } from '../services/evaluations.ts';
 import { activeDisplay } from '../services/display.ts';
+import { contentDisposition, groupFilesFor, parseFileKind } from '../services/groupFiles.ts';
 
 export async function professorRoutes(app: FastifyInstance) {
   const { db, hub } = app.ctx;
@@ -16,6 +17,7 @@ export async function professorRoutes(app: FastifyInstance) {
       `select d.id, d.label, d.date, d.room, d.start_time, d.end_time, d.primary_user_id, e.name as event_name,
               exists(select 1 from evaluator_assignments a where a.day_id = d.id and a.user_id = $1) as assigned
          from event_days d join events e on e.id = d.event_id
+        where d.deleted_at is null and e.deleted_at is null
         order by d.date, d.id`,
       [user.id],
     );
@@ -70,7 +72,12 @@ export async function professorRoutes(app: FastifyInstance) {
     const curRow = schedule.entries.find((e) => e.isCurrent) ?? null;
     let current: any = null;
     if (curRow) {
-      const g = await db.one<any>('select description, advisor, advisors, project_url, pdf_url, slides_url from groups where id = $1', [curRow.groupId]);
+      const g = await db.one<any>(
+        `select description, advisor, advisors, project_url, pdf_url, slides_url, github_url,
+                exists (select 1 from group_files f where f.group_id = groups.id and f.deleted_at is null) as has_files
+           from groups where id = $1`,
+        [curRow.groupId],
+      );
       const students = await db.query<{ name: string }>(
         'select s.name from group_students gs join students s on s.id = gs.student_id where gs.group_id = $1 order by gs.position, s.name',
         [curRow.groupId],
@@ -81,7 +88,7 @@ export async function professorRoutes(app: FastifyInstance) {
         description: g?.description ?? null,
         advisor: g?.advisor ?? null,
         advisors: g?.advisors ?? [],
-        hasMaterials: !!(g?.description || g?.project_url || g?.pdf_url || g?.slides_url),
+        hasMaterials: !!(g?.description || g?.project_url || g?.pdf_url || g?.slides_url || g?.github_url || g?.has_files),
         students: students.map((s) => s.name),
         myEvaluationId: mine?.id ?? null,
         myEvaluationStatus: mine?.status ?? null,
@@ -123,9 +130,8 @@ export async function professorRoutes(app: FastifyInstance) {
     };
   });
 
-  /** Resumo, orientadores e materiais do projeto (links do PDF e da apresentação) — para quem atua no dia do grupo. */
-  app.get('/groups/:id/project', async (req) => {
-    const groupId = paramId(req);
+  /** Grupo com dia e tipo de rubrica, liberado para quem atua no dia do grupo (sem dia: só o administrador). */
+  const groupForMember = async (req: FastifyRequest, groupId: number) => {
     const g = await db.one<any>(
       `select g.*, e.day_id, e.position, coalesce(rt.name, ert.name) as rubric_type_name
          from groups g join events ev on ev.id = g.event_id
@@ -138,6 +144,14 @@ export async function professorRoutes(app: FastifyInstance) {
     if (!g) throw notFound('Grupo não encontrado.');
     if (g.day_id) await requireDayMember(db, req, g.day_id);
     else requireAdmin(req);
+    return g;
+  };
+
+  /** Resumo, orientadores e materiais do projeto (links e arquivos enviados) — para quem atua no dia do grupo. */
+  app.get('/groups/:id/project', async (req) => {
+    const groupId = paramId(req);
+    const g = await groupForMember(req, groupId);
+    const files = (await groupFilesFor(db, [groupId])).get(groupId);
     const students = await db.query<{ name: string }>(
       'select s.name from group_students gs join students s on s.id = gs.student_id where gs.group_id = $1 order by gs.position, s.name',
       [groupId],
@@ -153,10 +167,29 @@ export async function professorRoutes(app: FastifyInstance) {
       projectUrl: g.project_url,
       pdfUrl: g.pdf_url,
       slidesUrl: g.slides_url,
+      githubUrl: g.github_url,
+      slidesFile: files?.slides ?? null,
+      articleFile: files?.article ?? null,
       color: g.color,
       position: g.position,
       rubricTypeName: g.rubric_type_name,
     };
+  });
+
+  /** Conteúdo do arquivo enviado (slides ou artigo). PDF abre na página; `?download=1` força o download. */
+  app.get('/groups/:id/files/:kind', async (req, reply) => {
+    const groupId = paramId(req);
+    const kind = parseFileKind((req.params as any).kind);
+    await groupForMember(req, groupId);
+    const f = await db.one<any>(`select filename, mime, data from group_files where group_id = $1 and kind = $2 and deleted_at is null
+          and exists (select 1 from groups g where g.id = group_id and g.deleted_at is null)`, [groupId, kind]);
+    if (!f) throw notFound('Arquivo não enviado.');
+    const data: Uint8Array = f.data;
+    const download = (req.query as any)?.download === '1' || f.mime !== 'application/pdf';
+    return reply
+      .header('Content-Type', f.mime)
+      .header('Content-Disposition', contentDisposition(f.filename, download))
+      .send(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
   });
 
   app.get('/evaluations/:id', async (req) => {

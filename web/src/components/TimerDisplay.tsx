@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { formatClock, LEVEL_LABEL, STATUS_LABEL, stageStartMs, type TimerView } from '@shared/timer.ts';
+import { DEFAULT_STAGE_ALERT, formatClock, LEVEL_LABEL, STATUS_LABEL, stageAlertPhase, stageNumber, stageStartMs, type Stage, type TimerView } from '@shared/timer.ts';
 import type { LiveState } from '../lib/types.ts';
 
 const LEVEL_ICON = { normal: '●', warn: '▲', danger: '◆', over: '⛔' } as const;
+
+type StageAlert = ReturnType<typeof stageAlertPhase>;
 
 export function useReducedMotion(): boolean {
   const query = '(prefers-reduced-motion: reduce)';
@@ -34,10 +36,12 @@ export function useReducedMotion(): boolean {
   return sys || pref;
 }
 
-export function StageSegments({ stages, view }: { stages: { name: string; durationSeconds: number; color: string }[]; view: TimerView }) {
+export function StageSegments({ stages, view }: { stages: Stage[]; view: TimerView }) {
   const total = stages.reduce((a, s) => a + s.durationSeconds, 0) || 1;
+  const num = stageNumber(stages, view.stageIndex);
+  const where = view.stage?.pause ? 'pausa' : `etapa ${num.number} de ${num.of}`;
   return (
-    <div className="segments" role="img" aria-label={`Progresso: etapa ${view.stageIndex + 1} de ${stages.length}, ${Math.floor(view.progressPct)}% do tempo total`}>
+    <div className="segments" role="img" aria-label={`Progresso: ${where}, ${Math.floor(view.progressPct)}% do tempo total`}>
       <div className="segments-bar">
         {stages.map((s, i) => {
           const start = stageStartMs(stages, i);
@@ -45,7 +49,7 @@ export function StageSegments({ stages, view }: { stages: { name: string; durati
           const fill = Math.max(0, Math.min(1, (view.elapsedMs - start) / dur));
           const state = i < view.stageIndex || view.timeUp ? 'done' : i === view.stageIndex ? 'current' : 'next';
           return (
-            <div key={i} className={`segment segment-${state}`} style={{ flexGrow: s.durationSeconds / total, ['--seg-color' as any]: s.color }}>
+            <div key={i} className={`segment segment-${state} ${s.pause ? 'segment-pause' : ''}`} style={{ flexGrow: s.durationSeconds / total, ['--seg-color' as any]: s.color }}>
               <div className="segment-fill" style={{ width: `${fill * 100}%` }} />
             </div>
           );
@@ -55,8 +59,8 @@ export function StageSegments({ stages, view }: { stages: { name: string; durati
         {stages.map((s, i) => {
           const state = i < view.stageIndex || view.timeUp ? 'done' : i === view.stageIndex ? 'current' : 'next';
           return (
-            <div key={i} className={`segment-label segment-label-${state}`} style={{ flexGrow: s.durationSeconds / total }}>
-              <span className="seg-mark">{state === 'done' ? '✓' : state === 'current' ? '▶' : '○'}</span> {s.name} · {formatClock(s.durationSeconds * 1000)}
+            <div key={i} className={`segment-label segment-label-${state}`} style={{ flexGrow: s.durationSeconds / total }} title={`${s.name} · ${formatClock(s.durationSeconds * 1000)}`}>
+              <span className="seg-mark">{state === 'done' ? '✓' : state === 'current' ? '▶' : s.pause ? '⏸' : '○'}</span> {s.name} · {formatClock(s.durationSeconds * 1000)}
             </div>
           );
         })}
@@ -66,20 +70,21 @@ export function StageSegments({ stages, view }: { stages: { name: string; durati
 }
 
 /** Anúncios para leitores de tela: troca de etapa e fim do tempo (não anuncia cada segundo). */
-function Announcer({ view, groupCode }: { view: TimerView | null; groupCode?: string }) {
+function Announcer({ view, groupCode, alert }: { view: TimerView | null; groupCode?: string; alert: StageAlert }) {
   const [msg, setMsg] = useState('');
   const [urgent, setUrgent] = useState('');
-  const prev = useRef<{ stage: number; timeUp: boolean; status: string } | null>(null);
+  const prev = useRef<{ stage: number; timeUp: boolean; status: string; alert: StageAlert } | null>(null);
   useEffect(() => {
     if (!view) return;
     const p = prev.current;
     if (p) {
       if (!p.timeUp && view.timeUp) setUrgent(`Tempo encerrado${groupCode ? ` para ${groupCode}` : ''}.`);
-      else if (p.stage !== view.stageIndex && view.stage) setMsg(`Nova etapa: ${view.stage.name}.`);
+      else if (p.stage !== view.stageIndex && view.stage) setMsg(view.stage.pause ? `Pausa: ${view.stage.name}.` : `Nova etapa: ${view.stage.name}.`);
       else if (p.status !== view.status) setMsg(`Cronômetro: ${STATUS_LABEL[view.status]}.`);
+      else if (p.alert !== 'pre' && alert === 'pre' && view.nextStage) setMsg(`Prepare-se: em instantes, ${view.nextStage.name}.`);
     }
-    prev.current = { stage: view.stageIndex, timeUp: view.timeUp, status: view.status };
-  }, [view?.stageIndex, view?.timeUp, view?.status, view, groupCode]);
+    prev.current = { stage: view.stageIndex, timeUp: view.timeUp, status: view.status, alert };
+  }, [view?.stageIndex, view?.timeUp, view?.status, view, groupCode, alert]);
   return (
     <>
       <div className="sr-only" aria-live="polite">
@@ -144,7 +149,21 @@ export function TimerDisplay({
   if (finishedEarly) statusText = 'Apresentação encerrada';
   if (view?.status === 'idle') statusText = 'Pronto para iniciar';
 
-  const cls = `timer timer-${compact ? 'compact' : 'projection'} lvl-${level} ${over ? (reduced ? 'over-static' : 'over-blink') : ''} ${reduced ? 'no-motion' : ''}`;
+  // Troca de etapa destacada: pulsa nos segundos antes de entrar ('pre') e logo depois de entrar ('enter').
+  const alert: StageAlert =
+    view && countdownMs <= 0
+      ? stageAlertPhase(view, {
+          beforeSeconds: live.event.stageAlertBeforeSeconds ?? DEFAULT_STAGE_ALERT.beforeSeconds,
+          afterSeconds: live.event.stageAlertAfterSeconds ?? DEFAULT_STAGE_ALERT.afterSeconds,
+        })
+      : null;
+  const alertStage = alert === 'pre' ? view?.nextStage : alert === 'enter' ? view?.stage : null;
+  const num = view ? stageNumber(stages, view.stageIndex) : { number: 0, of: 0 };
+
+  const cls = `timer timer-${compact ? 'compact' : 'projection'} lvl-${level} ${over ? (reduced ? 'over-static' : 'over-blink') : ''} ${reduced ? 'no-motion' : ''} ${
+    alert ? `stage-alert stage-alert-${alert}` : ''
+  } ${view?.stage?.pause && !over ? 'is-pause' : ''}`;
+  const alertStyle = alertStage ? { ['--alert-color' as any]: alertStage.color } : undefined;
 
   // Telão: o grupo só aparece depois de "Iniciar apresentação". Antes disso (inclusive na troca
   // de grupo, quando o próximo foi selecionado mas não aberto), mostra apenas a tela de espera.
@@ -183,10 +202,25 @@ export function TimerDisplay({
 
   const stageClock = view && (
     <div className="clock clock-stage" style={{ ['--stage-color' as any]: view.stage?.color }}>
+      {alertStage && (
+        <div className="stage-alert-banner">
+          <span aria-hidden="true">{alert === 'pre' ? '⚠ ' : '▶ '}</span>
+          {alert === 'pre' ? 'Prepare-se: a seguir ' : 'Agora: '}
+          <strong>{alertStage.name}</strong>
+        </div>
+      )}
       <div className="clock-label">
-        <span>
-          Etapa {view.stageIndex + 1}/{stages.length}: <strong>{view.stage?.name}</strong>
-        </span>
+        {view.stage?.pause ? (
+          <span>
+            <span aria-hidden="true">⏸ </span>
+            <strong>{view.stage.name}</strong>
+            {view.nextStage && <> · a seguir {view.nextStage.name}</>}
+          </span>
+        ) : (
+          <span>
+            Etapa {num.number}/{num.of}: <strong>{view.stage?.name}</strong>
+          </span>
+        )}
       </div>
       <div className="clock-digits" role="timer" aria-live="off" aria-label={`Tempo restante da etapa ${formatClock(view.stageRemainingMs)}`}>
         {formatClock(view.stageRemainingMs)}
@@ -248,8 +282,8 @@ export function TimerDisplay({
       );
     }
     return (
-      <section className={cls} aria-label="Cronômetro da apresentação">
-        <Announcer view={view} groupCode={cur?.code} />
+      <section className={cls} style={alertStyle} aria-label="Cronômetro da apresentação">
+        <Announcer view={view} groupCode={cur?.code} alert={alert} />
         <div className="timer-status-line">
           <span className={`timer-status status-${view.status}`}>{statusText}</span>
           {levelChip}
@@ -272,8 +306,8 @@ export function TimerDisplay({
   }
 
   return (
-    <section className={cls} aria-label="Cronômetro da apresentação">
-      <Announcer view={view} groupCode={cur?.code} />
+    <section className={cls} style={alertStyle} aria-label="Cronômetro da apresentação">
+      <Announcer view={view} groupCode={cur?.code} alert={alert} />
       <header className="timer-head" style={{ ['--group-color' as any]: cur!.color }}>
         <div className="timer-group">
           <span className="timer-order" style={{ background: cur!.color }}>

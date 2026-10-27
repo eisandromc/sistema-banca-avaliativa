@@ -8,7 +8,7 @@ import { TimerDisplay } from '../components/TimerDisplay.tsx';
 import { TimerControls } from '../components/TimerControls.tsx';
 import { EvaluationForm } from '../components/EvaluationForm.tsx';
 import { Review } from '../components/Review.tsx';
-import { ActionButton, Alert, Button, ConfirmDialog, Empty, ErrorBox, EvalStatus, Modal, Spinner, StartedCheck, StatusBadge, useLoad, useToast } from '../components/ui.tsx';
+import { ActionButton, Alert, Button, Empty, ErrorBox, EvalStatus, Modal, Spinner, StartedCheck, StatusBadge, useLoad, useToast } from '../components/ui.tsx';
 import { ConnectionBadge } from './Cronometro.tsx';
 import { OrderBadge, ProjectModal, namesList } from '../components/ProjectMaterials.tsx';
 import { dayLabel, fmtDate, fmtTime } from '../lib/format.ts';
@@ -91,7 +91,6 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
   const { live, receivedAt, connection } = useDayChannel(dayId, onSignal);
   const view = useTimerView(live, receivedAt);
   const [selectedEval, setSelectedEval] = useState<number | null>(null);
-  const [switchTo, setSwitchTo] = useState<number | null>(null);
   const [reviewGroup, setReviewGroup] = useState<number | null>(null);
   const [projectOf, setProjectOf] = useState<number | null>(null);
 
@@ -108,8 +107,8 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
   const selectedEntry = w.entries.find((e) => e.myEvaluationId === evalId);
   const activeTimer = live?.timer && (live.timer.status === 'running' || live.timer.status === 'paused');
 
-  const selectGroup = async (entryId: number, confirm = false, reason?: string) => {
-    await api.post(`/api/days/${dayId}/select`, { entryId, confirm, reason });
+  const selectGroup = async (entryId: number) => {
+    await api.post(`/api/days/${dayId}/select`, { entryId });
     await ws.reload(true);
   };
   // Avaliadores aguardam o primário (antes de ele abrir a sessão, na troca de grupo ou depois do último) com a lista do dia em ordem.
@@ -236,6 +235,11 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
             <h2 id="cronograma" className="h3">
               Cronograma
             </h2>
+            {w.access.canControl && activeTimer && (
+              <p className="small muted" role="note">
+                Apresentação em andamento: encerre-a para selecionar outro grupo.
+              </p>
+            )}
             {w.warnings.map((x, i) => (
               <Alert key={i} kind="warn">
                 {x}
@@ -278,16 +282,17 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
                       </Button>
                     )}
                     {w.access.canControl && !e.isCurrent && (
+                      // Com um grupo em apresentação (inclusive pausada), a troca fica bloqueada até encerrar.
                       <Button
                         variant="ghost"
+                        disabled={!!activeTimer}
+                        title={activeTimer ? 'Encerre a apresentação em andamento para selecionar outro grupo.' : undefined}
                         onClick={async () => {
-                          if (activeTimer) setSwitchTo(e.entryId);
-                          else
-                            try {
-                              await selectGroup(e.entryId);
-                            } catch (err) {
-                              toast.push({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
-                            }
+                          try {
+                            await selectGroup(e.entryId);
+                          } catch (err) {
+                            toast.push({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+                          }
                         }}
                       >
                         Selecionar
@@ -307,16 +312,6 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
       </div>
       )}
 
-      <ConfirmDialog
-        open={switchTo !== null}
-        onOpenChange={(v) => !v && setSwitchTo(null)}
-        title="Trocar de grupo durante a apresentação?"
-        description="O cronômetro do grupo atual será encerrado. As avaliações e o histórico do grupo atual são preservados."
-        confirmLabel="Trocar grupo"
-        variant="danger"
-        reason={{ label: 'Justificativa', minLength: 5, required: true }}
-        onConfirm={(reason) => selectGroup(switchTo!, true, reason)}
-      />
       {projectOf !== null && <ProjectModal groupId={projectOf} onClose={() => setProjectOf(null)} />}
       <Modal open={reviewGroup !== null} onOpenChange={(v) => !v && setReviewGroup(null)} title="Conferir e fechar avaliação" wide>
         {reviewGroup !== null && <Review groupId={reviewGroup} onChanged={() => void ws.reload(true)} />}

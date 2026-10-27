@@ -170,7 +170,7 @@ describe('banca do Projeto Integrador', () => {
       'Registro Consolidado da Banca',
       'TOTAL DA BANCA',
       '75 / 100',
-      '(X) Projeto desenvolvido',
+      '( X ) Projeto desenvolvido',
       '( ) Necessita retomada',
       'Aprofundar a fundamentação teórica.',
       'Assinaturas dos avaliadores',
@@ -198,38 +198,39 @@ describe('banca do Projeto Integrador', () => {
 });
 
 describe('dias de participação no cadastro do professor', () => {
-  it('lista, marca e desmarca dias com rubrica por dia; protege dias com fichas ou primário', async () => {
+  it('lista, marca e desmarca dias com a ficha de cada dia; protege dias com fichas ou primário', async () => {
     const users = (await admin.get('/api/users')).body.users;
     const daniel = users.find((u: any) => u.email === 'daniel@demo.banca');
     expect(daniel.days.map((d: any) => d.id)).toEqual(expect.arrayContaining([day1, day2]));
 
     const days = (await admin.get(`/api/users/${daniel.id}/days`)).body.days;
     const d1 = days.find((d: any) => d.dayId === day1);
-    expect(d1).toMatchObject({ assigned: true, hasEvaluations: true });
+    expect(d1).toMatchObject({ assigned: true, hasEvaluations: true, rubricPosition: 4, eventId });
     // Dia 1 tem fichas do Daniel: não pode ser removido
-    const keepOnlyDay2 = await admin.put(`/api/users/${daniel.id}/days`, { days: [{ dayId: day2, rubricVersionId: d1.rubricVersionId }] });
+    const keepOnlyDay2 = await admin.put(`/api/users/${daniel.id}/days`, { days: [{ dayId: day2, rubricPosition: d1.rubricPosition }] });
     expect(keepOnlyDay2.status).toBe(409);
 
-    // Elisa só atua no Dia 2; passa a atuar também no Dia 1 com outra rubrica e depois sai do Dia 1
+    // Elisa só atua no Dia 2; passa a atuar também no Dia 1 com outra ficha e depois sai do Dia 1
     const elisa = users.find((u: any) => u.email === 'elisa@demo.banca');
     const eDays = (await admin.get(`/api/users/${elisa.id}/days`)).body.days;
-    const d2rubric = eDays.find((d: any) => d.dayId === day2).rubricVersionId;
-    const tecnico = env.seed.rubrics.tecnica;
-    const mine = eDays.filter((d: any) => d.assigned).map((d: any) => ({ dayId: d.dayId, rubricVersionId: d.rubricVersionId }));
-    const add = await admin.put(`/api/users/${elisa.id}/days`, { days: [...mine, { dayId: day1, rubricVersionId: tecnico }] });
+    const d2ficha = eDays.find((d: any) => d.dayId === day2).rubricPosition;
+    const mine = eDays.filter((d: any) => d.assigned).map((d: any) => ({ dayId: d.dayId, rubricPosition: d.rubricPosition }));
+    // A ficha precisa existir no tipo de rubrica da banca (o Projeto Integrador tem 4).
+    expect((await admin.put(`/api/users/${elisa.id}/days`, { days: [...mine, { dayId: day1, rubricPosition: 5 }] })).status).toBe(400);
+    const add = await admin.put(`/api/users/${elisa.id}/days`, { days: [...mine, { dayId: day1, rubricPosition: 1 }] });
     expect(add.body).toEqual({ added: 1, updated: 0, removed: 0 });
     const now = (await admin.get(`/api/users/${elisa.id}/days`)).body.days.filter((d: any) => d.assigned);
-    expect(now.find((d: any) => d.dayId === day1).rubricVersionId).toBe(tecnico);
-    expect(now.find((d: any) => d.dayId === day2).rubricVersionId).toBe(d2rubric);
+    expect(now.find((d: any) => d.dayId === day1).rubricPosition).toBe(1);
+    expect(now.find((d: any) => d.dayId === day2).rubricPosition).toBe(d2ficha);
     const rem = await admin.put(`/api/users/${elisa.id}/days`, { days: mine });
     expect(rem.body).toEqual({ added: 0, updated: 0, removed: 1 });
 
     // Primário do dia não pode ser desmarcado; conta não-professor não participa
     const bruno = users.find((u: any) => u.email === 'bruno@demo.banca');
     const bDays = (await admin.get(`/api/users/${bruno.id}/days`)).body.days.filter((d: any) => d.assigned && d.dayId !== day2);
-    expect((await admin.put(`/api/users/${bruno.id}/days`, { days: bDays.map((d: any) => ({ dayId: d.dayId, rubricVersionId: d.rubricVersionId })) })).status).toBe(409);
+    expect((await admin.put(`/api/users/${bruno.id}/days`, { days: bDays.map((d: any) => ({ dayId: d.dayId, rubricPosition: d.rubricPosition })) })).status).toBe(409);
     const telao = users.find((u: any) => u.role === 'viewer');
-    expect((await admin.put(`/api/users/${telao.id}/days`, { days: [{ dayId: day1, rubricVersionId: tecnico }] })).status).toBe(400);
+    expect((await admin.put(`/api/users/${telao.id}/days`, { days: [{ dayId: day1, rubricPosition: 1 }] })).status).toBe(400);
     const prof = await login('bruno@demo.banca');
     expect((await prof.get(`/api/users/${bruno.id}/days`)).status).toBe(403);
   });

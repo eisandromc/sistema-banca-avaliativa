@@ -1,4 +1,6 @@
-import type { Queryable } from '../db/database.ts';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { Database, Queryable } from '../db/database.ts';
 
 /**
  * Modelo "Rubrica de Avaliação da Banca do Projeto Integrador" (4 avaliadores, critérios 0–5,
@@ -106,17 +108,20 @@ export const PI_EVENT_CONFIG = {
   reportPurpose:
     'A banca avalia a trajetória completa do Projeto Integrador: a investigação de um problema real, a qualidade do artigo, a solução técnica desenvolvida, a demonstração e a defesa das decisões do grupo.',
   reportGuidance:
-    'Cada professor avalia somente os critérios de sua dimensão. A exigência técnica deve ser compatível com o ano cursado e os conteúdos trabalhados pela turma.',
-  reportColor: '#0b5cab',
+    'cada professor avalia somente os critérios de sua dimensão. A exigência técnica deve ser compatível com o ano cursado e os conteúdos trabalhados pela turma.',
+  reportColor: '#005ca9',
   aggregation: 'sum' as const,
   verdictOptions: ['Projeto plenamente desenvolvido', 'Projeto desenvolvido', 'Projeto em desenvolvimento', 'Necessita retomada'],
 };
 
 export const PI_TYPE_NAME = 'Projeto Integrador';
 
+/** Logotipo do instrumento original, aplicado às bancas do Projeto Integrador (o administrador pode trocar ou remover). */
+export const PI_LOGO_DATA_URL = `data:image/png;base64,${readFileSync(resolve(import.meta.dirname, 'logo-projeto-integrador.png')).toString('base64')}`;
+
 /** Tipo de rubrica "Projeto Integrador" (criado se ainda não existir). */
 export async function ensurePiType(q: Queryable): Promise<number> {
-  const found = await q.one<{ id: number }>('select id from rubric_types where lower(name) = lower($1)', [PI_TYPE_NAME]);
+  const found = await q.one<{ id: number }>('select id from rubric_types where lower(name) = lower($1) and deleted_at is null', [PI_TYPE_NAME]);
   if (found) return found.id;
   return (await q.one<{ id: number }>('insert into rubric_types (name, description) values ($1, $2) returning id', [
     PI_TYPE_NAME,
@@ -131,11 +136,16 @@ export async function installPiRubrics(q: Queryable): Promise<number[]> {
   for (const r of PI_RUBRICS) {
     const existing = await q.one<{ id: number; template_id: number }>(
       `select v.id, v.template_id from rubric_versions v join rubric_templates t on t.id = v.template_id
-        where t.name = $1 order by v.version desc limit 1`,
+        where t.name = $1 and v.deleted_at is null order by v.version desc limit 1`,
       [r.name],
     );
     if (existing) {
-      await q.query('update rubric_templates set type_id = $2, type_position = $3 where id = $1 and type_id is null', [existing.template_id, typeId, r.sortOrder]);
+      // Religa ao tipo vigente se estiver sem tipo ou preso a um tipo que foi para a lixeira (senão o tipo recriado ficaria vazio).
+      await q.query(
+        `update rubric_templates set type_id = $2, type_position = $3
+          where id = $1 and (type_id is null or type_id in (select id from rubric_types where deleted_at is not null))`,
+        [existing.template_id, typeId, r.sortOrder],
+      );
       ids.push(existing.id);
       continue;
     }
@@ -170,8 +180,32 @@ export async function applyPiEventConfig(q: Queryable, eventId: number) {
   const typeId = await ensurePiType(q);
   await q.query(
     `update events set institution = $2, institution_detail = $3, report_header = $4, report_subtitle = $5, report_footer = $6,
-            report_purpose = $7, report_guidance = $8, report_color = $9, aggregation = $10, verdict_options = $11, rubric_type_id = $12
+            report_purpose = $7, report_guidance = $8, report_color = $9, aggregation = $10, verdict_options = $11, rubric_type_id = $12,
+            logo_data_url = coalesce(logo_data_url, $13)
       where id = $1`,
-    [eventId, c.institution, c.institutionDetail, c.reportHeader, c.reportSubtitle, c.reportFooter, c.reportPurpose, c.reportGuidance, c.reportColor, c.aggregation, c.verdictOptions, typeId],
+    [eventId, c.institution, c.institutionDetail, c.reportHeader, c.reportSubtitle, c.reportFooter, c.reportPurpose, c.reportGuidance, c.reportColor, c.aggregation, c.verdictOptions, typeId, PI_LOGO_DATA_URL],
   );
+}
+
+/** Ajuste único das bancas que já usavam o modelo: cor, texto da orientação e logotipo iguais aos do instrumento original. */
+const PI_DOC_UPGRADE = 'pi_documento_original';
+
+/**
+ * Executada após as migrações, em todo ambiente (servidor, `db:migrate`, testes): garante o tipo
+ * "Projeto Integrador" com as 4 rubricas e atualiza uma única vez as bancas criadas por versões anteriores.
+ */
+export async function ensurePiBaseline(db: Database) {
+  await db.tx(async (q) => {
+    await installPiRubrics(q);
+    if (await q.one('select 1 from schema_migrations where name = $1', [PI_DOC_UPGRADE])) return;
+    const c = PI_EVENT_CONFIG;
+    await q.query(
+      `update events set report_color = case when report_color = '#0b5cab' then $2 else report_color end,
+              report_guidance = case when report_guidance = $3 then $4 else report_guidance end,
+              logo_data_url = coalesce(logo_data_url, $5)
+        where report_header = $1`,
+      [c.reportHeader, c.reportColor, `C${c.reportGuidance.slice(1)}`, c.reportGuidance, PI_LOGO_DATA_URL],
+    );
+    await q.query('insert into schema_migrations (name) values ($1)', [PI_DOC_UPGRADE]);
+  });
 }

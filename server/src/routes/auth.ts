@@ -28,7 +28,7 @@ export async function authRoutes(app: FastifyInstance) {
     const body = z.object({ email: z.string().trim().email().max(200), password: z.string().min(1).max(200) }).parse(req.body);
     const key = `${req.ip}|${body.email.toLowerCase()}`;
     checkRate(key);
-    const user = await db.one<any>('select * from users where lower(email) = lower($1)', [body.email]);
+    const user = await db.one<any>('select * from users where lower(email) = lower($1) and deleted_at is null', [body.email]);
     // Verifica sempre a senha (mesmo sem usuário) para reduzir diferenças de tempo.
     const ok = user
       ? await verifyPassword(body.password, user.password_hash)

@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 
 /**
  * Abstração mínima sobre PostgreSQL. Duas implementações com o mesmo SQL:
- *  - `pg` (node-postgres) quando DATABASE_URL está definido — servidor PostgreSQL real;
+ *  - `pg` (node-postgres) quando DATABASE_URL_<AMBIENTE> está definido — servidor PostgreSQL real;
  *  - PGlite (PostgreSQL compilado para WASM) para desenvolvimento local e testes.
  *
  * IMPORTANTE: dentro de `tx(fn)`, use apenas o `q` recebido (PGlite tem uma única conexão).
@@ -28,13 +28,16 @@ const TYPE_INT8 = 20;
 const parseNumeric = (v: string) => (v === null ? null : Number.parseFloat(v));
 const parseInt8 = (v: string) => (v === null ? null : Number.parseInt(v, 10));
 
-function normalizeParams(params: unknown[] = []): unknown[] {
-  return params.map((p) => {
+function normalizeParams(sql: string, params: unknown[] = []): unknown[] {
+  // Só parâmetros usados como `$n::int[]` viram literal de array do PostgreSQL; demais objetos/arrays
+  // são serializados como JSON (colunas jsonb). Decidir pelo conteúdo transformaria `[]` em `{}`,
+  // que no jsonb é um objeto vazio, e não uma lista.
+  const intArrays = new Set([...sql.matchAll(/\$(\d+)::int\[\]/g)].map((m) => Number(m[1]) - 1));
+  return params.map((p, i) => {
     if (p === undefined) return null;
-    // Arrays numéricos viram literal de array do PostgreSQL (use com `$n::int[]`);
-    // demais objetos/arrays são serializados como JSON (colunas jsonb).
-    if (Array.isArray(p) && p.every((x) => typeof x === 'number' && Number.isFinite(x))) return `{${p.join(',')}}`;
-    if (p !== null && typeof p === 'object' && !(p instanceof Date)) return JSON.stringify(p);
+    if (Array.isArray(p) && intArrays.has(i)) return `{${p.join(',')}}`;
+    // Bytes (Buffer/Uint8Array) seguem como estão, para colunas bytea.
+    if (p !== null && typeof p === 'object' && !(p instanceof Date) && !ArrayBuffer.isView(p)) return JSON.stringify(p);
     return p;
   });
 }
@@ -46,11 +49,11 @@ export async function createPgDatabase(url: string): Promise<Database> {
   const pool = new pg.Pool({ connectionString: url, max: 10 });
   const wrap = (client: pg.Pool | pg.PoolClient): Queryable => ({
     async query(sql, params) {
-      const r = await client.query(sql, normalizeParams(params));
+      const r = await client.query(sql, normalizeParams(sql, params));
       return r.rows;
     },
     async one(sql, params) {
-      const r = await client.query(sql, normalizeParams(params));
+      const r = await client.query(sql, normalizeParams(sql, params));
       return (r.rows[0] as any) ?? null;
     },
   });
@@ -95,11 +98,11 @@ export async function createPgliteDatabase(dataDir: string | null): Promise<Data
   await db.waitReady;
   const wrap = (client: Pick<PGlite, 'query'>): Queryable => ({
     async query(sql, params) {
-      const r = await client.query(sql, normalizeParams(params));
+      const r = await client.query(sql, normalizeParams(sql, params));
       return r.rows as any[];
     },
     async one(sql, params) {
-      const r = await client.query(sql, normalizeParams(params));
+      const r = await client.query(sql, normalizeParams(sql, params));
       return (r.rows[0] as any) ?? null;
     },
   });

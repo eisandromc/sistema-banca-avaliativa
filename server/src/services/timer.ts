@@ -45,7 +45,16 @@ export interface LiveTimer {
 export interface LiveState {
   serverNow: number;
   day: { id: number; label: string; date: string; room: string | null };
-  event: { id: number; name: string; institution: string | null; warnPct: number; dangerPct: number; showStudentNames: boolean };
+  event: {
+    id: number;
+    name: string;
+    institution: string | null;
+    warnPct: number;
+    dangerPct: number;
+    stageAlertBeforeSeconds: number;
+    stageAlertAfterSeconds: number;
+    showStudentNames: boolean;
+  };
   current: null | {
     entryId: number;
     groupId: number;
@@ -181,7 +190,8 @@ export class TimerService {
 
   async liveState(dayId: number, q: Queryable = this.db): Promise<LiveState> {
     const d = await q.one<any>(
-      `select d.*, e.name as event_name, e.institution, e.warn_pct, e.danger_pct, e.show_student_names
+      `select d.*, e.name as event_name, e.institution, e.warn_pct, e.danger_pct, e.show_student_names,
+              e.stage_alert_before_seconds, e.stage_alert_after_seconds
          from event_days d join events e on e.id = d.event_id where d.id = $1`,
       [dayId],
     );
@@ -228,6 +238,8 @@ export class TimerService {
         institution: d.institution,
         warnPct: d.warn_pct,
         dangerPct: d.danger_pct,
+        stageAlertBeforeSeconds: d.stage_alert_before_seconds,
+        stageAlertAfterSeconds: d.stage_alert_after_seconds,
         showStudentNames: d.show_student_names,
       },
       current: cur
@@ -311,7 +323,8 @@ export class TimerService {
     return finalStatus;
   }
 
-  async select(actorId: number, dayId: number, entryId: number, opts: { confirm?: boolean; reason?: string }) {
+  /** Seleciona o grupo atual. Enquanto houver apresentação em andamento (inclusive pausada), a troca é bloqueada. */
+  async select(actorId: number, dayId: number, entryId: number) {
     return this.control(dayId, 'group_selected', async (q, nowMs) => {
       const entry = await q.one<{ id: number; group_id: number }>('select id, group_id from schedule_entries where id = $1 and day_id = $2', [entryId, dayId]);
       if (!entry) throw notFound('Grupo não pertence a este dia.');
@@ -319,23 +332,10 @@ export class TimerService {
       if (day?.current_entry_id === entryId) return { changed: false };
       const active = await this.activeSession(q, dayId);
       if (active && active.entry_id !== entryId) {
-        if (!opts.confirm || !opts.reason || opts.reason.trim().length < 5) {
-          throw conflict(
-            'Há uma apresentação em andamento. Confirme a troca e informe uma justificativa (mín. 5 caracteres). As avaliações e o histórico do grupo atual serão preservados.',
-            'CONFIRM_REQUIRED',
-          );
-        }
-        const elapsed = elapsedOf(active, nowMs);
-        await this.event(q, active.id, 'stopped_by_switch', actorId, elapsed, { reason: opts.reason, toEntryId: entryId });
-        await this.writeState(q, active, elapsed, 'stopped', nowMs);
+        throw conflict('Há uma apresentação em andamento. Encerre-a antes de selecionar outro grupo.', 'PRESENTATION_ACTIVE');
       }
       await q.query('update event_days set current_entry_id = $2 where id = $1', [dayId, entryId]);
-      await audit(q, actorId, 'group.selected', 'event_day', dayId, {
-        from: day?.current_entry_id ?? null,
-        to: entryId,
-        reason: opts.reason ?? null,
-        interruptedSession: active?.id ?? null,
-      });
+      await audit(q, actorId, 'group.selected', 'event_day', dayId, { from: day?.current_entry_id ?? null, to: entryId });
       return { changed: true };
     });
   }

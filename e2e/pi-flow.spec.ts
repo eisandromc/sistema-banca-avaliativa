@@ -99,7 +99,7 @@ test('banca do Projeto Integrador: escala 0–5, soma /100, parecer e PDF preenc
 
   const [download] = await Promise.all([ana.waitForEvent('download'), dlg.getByRole('link', { name: /Baixar PDF/ }).click()]);
   const text = pdfText(readFileSync((await download.path())!));
-  for (const t of ['Rubrica de Avaliação da Banca do Projeto Integrador', 'Avaliador - Conteúdo Técnico', 'Subtotal do avaliador: 22 / 25', 'Registro Consolidado da Banca', 'TOTAL DA BANCA', '81 / 100', '(X) Projeto desenvolvido', 'Sala 201']) {
+  for (const t of ['Rubrica de Avaliação da Banca do Projeto Integrador', 'Avaliador - Conteúdo Técnico', 'Subtotal do avaliador: 22 / 25', 'Registro Consolidado da Banca', 'TOTAL DA BANCA', '81 / 100', '( X ) Projeto desenvolvido', 'Sala 201']) {
     expect(text, t).toContain(t);
   }
 });

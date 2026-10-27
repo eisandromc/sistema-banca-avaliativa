@@ -19,14 +19,17 @@ async function login(browser: Browser, email: string, path: string): Promise<Pag
   return page;
 }
 
-async function fillEvaluation(page: Page, scores: Record<string, string>, vote: string) {
-  for (const [label, value] of Object.entries(scores)) {
-    await page.getByLabel(label, { exact: false }).first().fill(value);
+/** Fichas do Projeto Integrador: 5 critérios, nível de 0 a 5 escolhido por botão. */
+async function fillEvaluation(page: Page, scores: number[], feedbackLabel: string, vote: string) {
+  const criteria = page.locator('.criterion');
+  await expect(criteria).toHaveCount(5);
+  for (let i = 0; i < scores.length; i++) {
+    await criteria
+      .nth(i)
+      .locator('.scale-opt', { has: page.locator('.scale-value', { hasText: new RegExp(`^${scores[i]}$`) }) })
+      .click();
   }
-  const justif = page.getByRole('textbox', { name: /^Justificativa/ });
-  const n = await justif.count();
-  for (let i = 0; i < n; i++) await justif.nth(i).fill(`Comentário de teste ${i + 1}`);
-  await page.getByLabel('Observações gerais do projeto').fill('Observação geral (teste E2E).');
+  await page.getByLabel(feedbackLabel).fill('Devolutiva de teste (E2E).');
   await page.getByRole('radio', { name: vote, exact: true }).check();
   await expect(page.getByText('Pronta para envio')).toBeVisible();
   await expect(page.getByText('Rascunho salvo no servidor')).toBeVisible();
@@ -69,6 +72,10 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
   await bruno.getByRole('button', { name: 'Projeto de Grupo 01' }).click();
   await expect(bruno.getByRole('heading', { name: 'Resumo do projeto' })).toBeVisible();
   await expect(bruno.getByRole('dialog').getByText(/Orientador|Orientadora/).first()).toBeVisible();
+  // Repositório no GitHub: link que abre em outra aba.
+  const github = bruno.getByRole('dialog').getByRole('link', { name: /Abrir no GitHub/ });
+  await expect(github).toHaveAttribute('href', 'https://github.com/exemplo/projeto-ficticio');
+  await expect(github).toHaveAttribute('target', '_blank');
   await bruno.getByRole('dialog').getByRole('button', { name: 'Ver apresentação' }).click();
   await expect(bruno.locator('iframe.viewer-frame')).toBeVisible();
   await bruno.getByRole('button', { name: 'Voltar ao projeto' }).click();
@@ -87,9 +94,10 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
   await expect(telao.getByRole('timer', { name: /Tempo total restante/ })).toBeVisible();
   await expect(telao.getByText('Estudante Fictício A1')).toHaveCount(0); // nomes ocultos por padrão
   // Fichas abertas em tempo real, sem recarregar, com a rubrica correta de cada docente.
-  await expect(bruno.getByLabel('Domínio técnico')).toBeVisible();
-  await expect(carla.getByLabel('Clareza da apresentação')).toBeVisible();
-  await expect(carla.getByLabel('Domínio técnico')).toHaveCount(0);
+  await expect(ana.getByText('Avaliador - Conteúdo Técnico')).toBeVisible();
+  await expect(bruno.getByText('Avaliador - Artigo e Pesquisa')).toBeVisible();
+  await expect(carla.getByText('Avaliador - Projeto Integrador')).toBeVisible();
+  await expect(carla.getByText('Avaliador - Conteúdo Técnico')).toHaveCount(0);
   // Cronograma recebe o check "Iniciado".
   await expect(ana.locator('.sched-item', { hasText: 'Grupo 01' }).getByText('Iniciado')).toBeVisible();
 
@@ -106,14 +114,15 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
   await expect.poll(() => telao.evaluate(() => (window as any).__bancaApplausePlays ?? 0)).toBeGreaterThanOrEqual(1);
 
   // Docentes avaliam (nota zero é válida), votam e enviam.
-  await fillEvaluation(ana, { 'Domínio técnico': '8', 'Funcionamento da demonstração': '9', 'Organização do projeto': '7', 'Respostas às perguntas': '10' }, 'Indicar');
-  await fillEvaluation(bruno, { 'Domínio técnico': '0', 'Funcionamento da demonstração': '5', 'Organização do projeto': '5', 'Respostas às perguntas': '5' }, 'Não indicar');
-  await fillEvaluation(carla, { 'Clareza da apresentação': '10', 'Uso do tempo': '8', 'Material visual': '6' }, 'Indicar');
+  await fillEvaluation(ana, [4, 5, 4, 3, 5], 'Devolutiva técnica', 'Indicar');
+  await fillEvaluation(bruno, [0, 3, 3, 3, 3], 'Devolutiva sobre o artigo e a pesquisa', 'Não indicar');
+  await fillEvaluation(carla, [5, 4, 4, 4, 5], 'Devolutiva sobre o desenvolvimento do Projeto Integrador', 'Indicar');
 
   // Primária confere e fecha.
   await ana.getByRole('button', { name: 'Conferir e fechar avaliação' }).first().click();
   const dialog = ana.getByRole('dialog');
-  await expect(dialog.locator('.final-value')).toHaveText('68,33');
+  // Média das pontuações (0–100): Ana 21/25 = 84, Bruno 12/25 = 48, Carla 22/25 = 88 → 73,33.
+  await expect(dialog.locator('.final-value')).toHaveText('73,33');
   await dialog.getByRole('button', { name: /Conferir e fechar avaliação/ }).click();
   await ana.getByRole('dialog', { name: 'Fechar a avaliação deste projeto?' }).getByRole('button', { name: 'Fechar avaliação' }).click();
   await expect(dialog.getByText(/Avaliação fechada/)).toBeVisible();
@@ -138,7 +147,8 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
   await expect(ana.locator('.sched-item', { hasText: 'Grupo 01' }).getByText('Finalizado')).toBeVisible();
   await ana.getByRole('button', { name: /Iniciar apresentação/ }).click();
   await expect(telao.locator('.timer-code')).toHaveText('Grupo 02');
-  await expect(bruno.getByLabel('Domínio técnico')).toHaveValue('');
+  await expect(bruno.getByText('Avaliador - Artigo e Pesquisa')).toBeVisible();
+  await expect(bruno.locator('.scale-opt.selected')).toHaveCount(0);
   await expect(bruno.locator('.sched-item', { hasText: 'Grupo 01' }).getByText('Enviada')).toBeVisible();
 });
 

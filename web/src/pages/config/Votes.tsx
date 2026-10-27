@@ -49,17 +49,27 @@ function VotesInner() {
       <div className="row between wrap">
         <h2>Votação</h2>
         <Button
-          variant="primary"
+          variant="create"
           onClick={() =>
-            setEditing({ title: '', prompt: '', enabled: true, required: true, allowAbstain: true, rule: 'simple_majority', quorumMin: null, position: data!.questions.length, options: PRESETS['Aprovar / Não aprovar / Abster-se']! })
+            setEditing({
+              title: '',
+              prompt: '',
+              enabled: true,
+              required: true,
+              allowAbstain: true,
+              rule: 'simple_majority',
+              quorumMin: null,
+              position: data!.questions.length,
+              options: PRESETS['Aprovar / Não aprovar / Abster-se']!,
+            })
           }
         >
           + Nova pergunta
         </Button>
       </div>
       <p className="muted">
-        A votação é opcional e independente das notas: abre junto com a ficha ao iniciar o cronômetro, cada docente vota uma vez por pergunta e grupo, e a apuração aparece separada no
-        fechamento e no PDF. Nenhuma decisão é inferida a partir da média.
+        A votação é opcional e independente das notas: abre junto com a ficha ao iniciar o cronômetro, cada docente vota uma vez por pergunta e grupo, e a apuração aparece separada no fechamento e no PDF. Nenhuma decisão
+        é inferida a partir da média.
       </p>
       {data!.questions.length === 0 ? (
         <Empty>Nenhuma pergunta configurada — a votação está desabilitada para esta banca.</Empty>
@@ -71,12 +81,12 @@ function VotesInner() {
                 {q.title} <span className="pill">{q.enabled ? 'Habilitada' : 'Desabilitada'}</span>
               </h3>
               <div className="row gap">
-                <Button onClick={() => setEditing(q)}>Editar</Button>
+                <Button variant="edit" onClick={() => setEditing(q)}>Editar</Button>
                 {q.votes === 0 && (
                   <ActionButton
-                    variant="ghost"
+                    variant="delete"
                     onAction={async () => {
-                      if (!window.confirm('Excluir pergunta?')) return;
+                      if (!window.confirm('Mover a pergunta para a lixeira?')) return;
                       await api.del(`/api/vote-questions/${q.id}`);
                       await reload(true);
                     }}
@@ -119,7 +129,12 @@ function QuestionDialog({ eventId, initial, onClose, onSaved }: { eventId: numbe
         <Checkbox
           label="Permitir abstenção"
           checked={q.allowAbstain}
-          onChange={(v) => set({ allowAbstain: v, options: v ? q.options : q.options.filter((o) => !o.isAbstain) })}
+          onChange={(v) =>
+            set({
+              allowAbstain: v,
+              options: v ? q.options : q.options.filter((o) => !o.isAbstain),
+            })
+          }
         />
       </div>
       <div className="grid2">
@@ -136,7 +151,19 @@ function QuestionDialog({ eventId, initial, onClose, onSaved }: { eventId: numbe
         </Field>
         {q.rule === 'quorum' && (
           <Field label="Quórum mínimo (votos válidos)" required>
-            {(p) => <input {...p} type="number" min={1} value={q.quorumMin ?? ''} onChange={(e) => set({ quorumMin: e.target.value ? Number(e.target.value) : null })} />}
+            {(p) => (
+              <input
+                {...p}
+                type="number"
+                min={1}
+                value={q.quorumMin ?? ''}
+                onChange={(e) =>
+                  set({
+                    quorumMin: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+              />
+            )}
           </Field>
         )}
       </div>
@@ -145,7 +172,16 @@ function QuestionDialog({ eventId, initial, onClose, onSaved }: { eventId: numbe
         <div className="row gap wrap">
           <span className="muted small">Modelos:</span>
           {Object.entries(PRESETS).map(([name, opts]) => (
-            <Button key={name} variant="ghost" onClick={() => set({ options: opts, allowAbstain: opts.some((o) => o.isAbstain) || q.allowAbstain })}>
+            <Button
+              key={name}
+              variant="ghost"
+              onClick={() =>
+                set({
+                  options: opts,
+                  allowAbstain: opts.some((o) => o.isAbstain) || q.allowAbstain,
+                })
+              }
+            >
               {name}
             </Button>
           ))}
@@ -153,18 +189,36 @@ function QuestionDialog({ eventId, initial, onClose, onSaved }: { eventId: numbe
       )}
       {q.options.map((o, i) => (
         <div key={i} className="row gap wrap">
-          <input aria-label={`Opção ${i + 1}`} value={o.label} disabled={locked} onChange={(e) => set({ options: q.options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} />
+          <input
+            aria-label={`Opção ${i + 1}`}
+            value={o.label}
+            disabled={locked}
+            onChange={(e) =>
+              set({
+                options: q.options.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)),
+              })
+            }
+          />
           {q.allowAbstain && (
-            <Checkbox label="É abstenção" checked={o.isAbstain} onChange={(v) => !locked && set({ options: q.options.map((x, j) => (j === i ? { ...x, isAbstain: v } : x)) })} />
+            <Checkbox
+              label="É abstenção"
+              checked={o.isAbstain}
+              onChange={(v) =>
+                !locked &&
+                set({
+                  options: q.options.map((x, j) => (j === i ? { ...x, isAbstain: v } : x)),
+                })
+              }
+            />
           )}
           {!locked && (
-            <Button variant="ghost" aria-label={`Remover opção ${i + 1}`} onClick={() => set({ options: q.options.filter((_, j) => j !== i) })}>
+            <Button variant="delete" className="btn-sm" aria-label={`Remover opção ${i + 1}`} onClick={() => set({ options: q.options.filter((_, j) => j !== i) })}>
               ✕
             </Button>
           )}
         </div>
       ))}
-      {!locked && <Button onClick={() => set({ options: [...q.options, { label: '', isAbstain: false }] })}>+ Opção</Button>}
+      {!locked && <Button variant="create" onClick={() => set({ options: [...q.options, { label: '', isAbstain: false }] })}>+ Opção</Button>}
       {err && <Alert kind="error">{err}</Alert>}
       <div className="dialog-actions">
         <Button onClick={onClose}>Cancelar</Button>
@@ -175,7 +229,10 @@ function QuestionDialog({ eventId, initial, onClose, onSaved }: { eventId: numbe
           onClick={async () => {
             setBusy(true);
             try {
-              const body = { ...q, options: q.options.filter((o) => o.label.trim()) };
+              const body = {
+                ...q,
+                options: q.options.filter((o) => o.label.trim()),
+              };
               if (initial.id) await api.put(`/api/vote-questions/${initial.id}`, body);
               else await api.post(`/api/events/${eventId}/vote-questions`, body);
               await onSaved();

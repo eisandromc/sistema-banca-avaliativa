@@ -1,10 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Database } from './database.ts';
+import { ensurePiBaseline } from '../templates/projetoIntegrador.ts';
 
 const MIGRATIONS_DIR = resolve(import.meta.dirname, 'migrations');
 
-/** Aplica, em ordem e em transação, as migrações .sql ainda não registradas. */
+/**
+ * Aplica, em ordem e em transação, as migrações .sql ainda não registradas e, em seguida, garante os
+ * dados de base (rubrica do Projeto Integrador), em qualquer ambiente e banco.
+ */
 export async function migrate(db: Database, log: (msg: string) => void = () => undefined): Promise<string[]> {
   await db.exec(`create table if not exists schema_migrations (
     name text primary key,
@@ -21,5 +25,6 @@ export async function migrate(db: Database, log: (msg: string) => void = () => u
     log(`migração aplicada: ${file}`);
     done.push(file);
   }
+  await ensurePiBaseline(db);
   return done;
 }

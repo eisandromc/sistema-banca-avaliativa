@@ -7,6 +7,10 @@ export interface Stage {
   name: string;
   durationSeconds: number;
   color: string;
+  /** Pausa entre etapas (ex.: preparar os alunos): não entra na numeração "Etapa X/Y" nem muda de faixa de cor. */
+  pause?: boolean;
+  /** Destaca a troca para esta etapa: pulsa antes de entrar e logo depois de entrar. */
+  alert?: boolean;
 }
 
 export type TimerStatus = 'idle' | 'running' | 'paused' | 'ended' | 'stopped';
@@ -96,8 +100,36 @@ export function computeTimer(
     stageRemainingPct,
     progressPct: totalMs > 0 ? (elapsedMs / totalMs) * 100 : 0,
     timeUp,
-    level: levelFor(stageRemainingPct, timeUp, thresholds),
+    // Pausa não "aperta": a faixa de cor fica normal até a próxima etapa.
+    level: stage?.pause && !timeUp ? 'normal' : levelFor(stageRemainingPct, timeUp, thresholds),
   };
+}
+
+/** Numeração das etapas sem contar as pausas: { number: posição entre as etapas (0 numa pausa), of: total de etapas }. */
+export function stageNumber(stages: Stage[], index: number): { number: number; of: number } {
+  const of = stages.filter((s) => !s.pause).length;
+  if (index < 0 || stages[index]?.pause) return { number: 0, of };
+  return { number: stages.slice(0, index + 1).filter((s) => !s.pause).length, of };
+}
+
+export interface StageAlertWindow {
+  /** Segundos de alerta antes de entrar numa etapa com destaque. */
+  beforeSeconds: number;
+  /** Segundos de destaque depois de entrar na etapa. */
+  afterSeconds: number;
+}
+
+export const DEFAULT_STAGE_ALERT: StageAlertWindow = { beforeSeconds: 15, afterSeconds: 5 };
+
+/**
+ * Fase do alerta de troca de etapa: 'pre' nos últimos segundos antes de uma etapa com destaque,
+ * 'enter' nos primeiros segundos dentro dela, null fora dessas janelas (ou com o tempo parado).
+ */
+export function stageAlertPhase(view: TimerView, w: StageAlertWindow): 'pre' | 'enter' | null {
+  if (view.status !== 'running' || view.timeUp) return null;
+  if (view.nextStage?.alert && w.beforeSeconds > 0 && view.stageRemainingMs <= w.beforeSeconds * 1000) return 'pre';
+  if (view.stage?.alert && w.afterSeconds > 0 && view.stageElapsedMs < w.afterSeconds * 1000) return 'enter';
+  return null;
 }
 
 export function levelFor(stageRemainingPct: number, timeUp: boolean, t: Thresholds): TimerLevel {

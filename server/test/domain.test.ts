@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeTimer, formatClock, totalDurationMs, type Stage } from '../../shared/timer.ts';
+import { computeTimer, formatClock, stageAlertPhase, stageNumber, totalDurationMs, type Stage } from '../../shared/timer.ts';
 import { finalScore, round2, teacherScore, validateScore, normalizeScore, formatScore } from '../../shared/scoring.ts';
 import { computeSchedule, validateDayTimes } from '../../shared/schedule.ts';
 import { tallyVotes } from '../../shared/votes.ts';
@@ -10,6 +10,45 @@ const STAGES: Stage[] = [
   { name: 'Perguntas e considerações', durationSeconds: 300, color: '#0f766e' },
 ];
 const MIN = 60_000;
+
+describe('cronômetro — pausa e alerta de troca de etapa', () => {
+  const WITH_PAUSE: Stage[] = [
+    { name: 'Apresentação', durationSeconds: 600, color: '#2563eb' },
+    { name: 'Demonstração', durationSeconds: 300, color: '#7c3aed', alert: true },
+    { name: 'Pausa — preparação', durationSeconds: 30, color: '#64748b', pause: true },
+    { name: 'Perguntas e considerações', durationSeconds: 300, color: '#0f766e' },
+  ];
+  const W = { beforeSeconds: 15, afterSeconds: 5 };
+  const SEC = 1000;
+
+  it('a pausa de 30 s entre Demonstração e Perguntas não entra na numeração das etapas', () => {
+    expect(totalDurationMs(WITH_PAUSE)).toBe(20 * MIN + 30 * SEC);
+    expect(stageNumber(WITH_PAUSE, 1)).toEqual({ number: 2, of: 3 });
+    expect(stageNumber(WITH_PAUSE, 2)).toEqual({ number: 0, of: 3 });
+    expect(stageNumber(WITH_PAUSE, 3)).toEqual({ number: 3, of: 3 });
+    const pause = computeTimer(WITH_PAUSE, 15 * MIN + 29 * SEC, 'running');
+    expect(pause.stage?.pause).toBe(true);
+    expect(pause.nextStage?.name).toBe('Perguntas e considerações');
+    expect(pause.level).toBe('normal'); // a pausa não pinta de laranja
+    expect(computeTimer(WITH_PAUSE, 15 * MIN + 30 * SEC, 'running').stage?.name).toBe('Perguntas e considerações');
+  });
+
+  it('pulsa nos 15 s antes de entrar na Demonstração e nos 5 s depois; fora disso, normal', () => {
+    const at = (ms: number, status: 'running' | 'paused' = 'running') => stageAlertPhase(computeTimer(WITH_PAUSE, ms, status), W);
+    expect(at(10 * MIN - 16 * SEC)).toBeNull();
+    expect(at(10 * MIN - 15 * SEC)).toBe('pre');
+    expect(at(10 * MIN - 1)).toBe('pre');
+    expect(at(10 * MIN)).toBe('enter');
+    expect(at(10 * MIN + 4999)).toBe('enter');
+    expect(at(10 * MIN + 5 * SEC)).toBeNull();
+    // Etapas sem destaque (Perguntas) e cronômetro pausado não pulsam.
+    expect(at(15 * MIN + 20 * SEC)).toBeNull();
+    expect(at(10 * MIN - 5 * SEC, 'paused')).toBeNull();
+    // 0 segundos desliga cada janela.
+    expect(stageAlertPhase(computeTimer(WITH_PAUSE, 10 * MIN - 5 * SEC, 'running'), { beforeSeconds: 0, afterSeconds: 5 })).toBeNull();
+    expect(stageAlertPhase(computeTimer(WITH_PAUSE, 10 * MIN + 1 * SEC, 'running'), { beforeSeconds: 15, afterSeconds: 0 })).toBeNull();
+  });
+});
 
 describe('cronômetro — cálculo de etapas', () => {
   it('perfil 10+5+5 mostra exatamente 20:00 antes de iniciar', () => {

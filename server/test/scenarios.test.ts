@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupEnv, DEMO_DATE, pdfText, type TestEnv, type Client } from './helpers.ts';
 import { seedScenarios, SCENARIOS, type ScenarioSeed } from '../src/db/scenarios.ts';
+import { PI_RUBRICS } from '../src/templates/projetoIntegrador.ts';
 
 /**
  * Banca de cenários de teste: cada grupo é levado a uma situação do processo pelos próprios serviços.
@@ -59,7 +60,8 @@ describe('banca de cenários de teste', () => {
     expect(carlaRow.absent.reason).toMatch(/ausente/);
     expect(carlaRow.counted).toBe(false);
     const brunoRow = c02.closed.evaluators.find((e: any) => e.name.includes('Bruno'));
-    expect(brunoRow.criteria.find((c: any) => c.title === 'Organização').waived).toBeTruthy();
+    // Bruno preenche a 2ª ficha do Projeto Integrador; o 3º critério dela foi dispensado.
+    expect(brunoRow.criteria.filter((c: any) => c.waived).map((c: any) => c.title)).toEqual([PI_RUBRICS[1]!.criteria[2]]);
 
     // C-04 reaberto: fichas voltaram a rascunho, sem fechamento vigente.
     const c04 = (await ana.get(`/api/groups/${sc.groups['C-04']}/review`)).body;
@@ -166,14 +168,14 @@ describe('correções do processo', () => {
     expect((await entryOf('C-06')).status).toBe('started');
   });
 
-  it('atribuição duplicada responde com mensagem clara; edição valida a rubrica', async () => {
+  it('atribuição duplicada responde com mensagem clara; edição valida a ficha', async () => {
     const list = (await admin.get(`/api/days/${sc.dayId}/assignments`)).body.assignments;
     const brunoA = list.find((a: any) => a.userName.includes('Bruno') && a.groupId === null);
-    const dup = await admin.post(`/api/days/${sc.dayId}/assignments`, { userId: sc.users.bruno, rubricVersionId: brunoA.rubricVersionId, groupId: null });
+    const dup = await admin.post(`/api/days/${sc.dayId}/assignments`, { userId: sc.users.bruno, rubricPosition: brunoA.rubricPosition, groupId: null });
     expect(dup.status).toBe(409);
     expect(dup.body.error).toMatch(/já avalia todos os grupos/);
-    expect((await admin.patch(`/api/assignments/${brunoA.id}`, { rubricVersionId: 999999 })).status).toBe(400);
-    expect((await admin.patch(`/api/assignments/999999`, { rubricVersionId: brunoA.rubricVersionId })).status).toBe(404);
+    expect((await admin.patch(`/api/assignments/${brunoA.id}`, { rubricPosition: 9 })).status).toBe(400); // o tipo da banca tem 4 fichas
+    expect((await admin.patch(`/api/assignments/999999`, { rubricPosition: brunoA.rubricPosition })).status).toBe(404);
   });
 
   it('a atribuição do professor primário não é removida sem trocar o primário', async () => {
@@ -187,7 +189,7 @@ describe('correções do processo', () => {
   it('avaliador designado depois do início recebe a ficha ao abrir a conferência', async () => {
     // C-10 está no dia incompleto: designa primário e perfil, inicia, e só depois inclui um avaliador.
     const evs = (await admin.get('/api/events')).body.events.find((e: any) => e.id === sc.eventId);
-    const rubricId = (await admin.get(`/api/days/${sc.dayId}/assignments`)).body.assignments[0].rubricVersionId;
+    const ficha = (await admin.get(`/api/days/${sc.dayId}/assignments`)).body.assignments[0].rubricPosition;
     const d2 = evs.days.find((d: any) => d.id === sc.incompleteDayId);
     const profileId = evs.days.find((d: any) => d.id === sc.dayId).defaultProfileId;
     expect(
@@ -204,10 +206,10 @@ describe('correções do processo', () => {
         })
       ).status,
     ).toBe(200);
-    expect((await admin.put(`/api/days/${sc.incompleteDayId}/primary`, { userId: sc.users.ana, rubricVersionId: rubricId })).status).toBe(200);
+    expect((await admin.put(`/api/days/${sc.incompleteDayId}/primary`, { userId: sc.users.ana, rubricPosition: ficha })).status).toBe(200);
     const entry = (await admin.get(`/api/days/${sc.incompleteDayId}/schedule`)).body.entries[0];
     expect((await ana.post(`/api/days/${sc.incompleteDayId}/timer/start`, { entryId: entry.entryId })).status).toBe(200);
-    expect((await admin.post(`/api/days/${sc.incompleteDayId}/assignments`, { userId: sc.users.carla, rubricVersionId: rubricId, groupId: null })).status).toBe(200);
+    expect((await admin.post(`/api/days/${sc.incompleteDayId}/assignments`, { userId: sc.users.carla, rubricPosition: ficha, groupId: null })).status).toBe(200);
     const review = (await admin.get(`/api/groups/${sc.groups['C-10']}/review`)).body.consolidation;
     const carlaRow = review.evaluators.find((e: any) => e.name.includes('Carla'));
     expect(carlaRow.evaluationId).toBeTruthy();

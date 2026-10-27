@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../../lib/api.ts';
-import { Alert, Button, Checkbox, Empty, ErrorBox, Field, Modal, Spinner, useLoad, useToast, ActionButton } from '../../components/ui.tsx';
+import { Alert, Button, Checkbox, Empty, ErrorBox, Field, Modal, Spinner, Struck, useLoad, useToast, ActionButton } from '../../components/ui.tsx';
 import { formatScore } from '@shared/scoring.ts';
 import { useConfig } from '../Configuracao.tsx';
 import type { RubricTypeRow, RubricsData } from './rubricOptions.tsx';
@@ -57,13 +57,27 @@ const blank = (): VersionForm => ({
   feedbackLabel: '',
   sortOrder: 0,
   scaleLabelsText: '',
-  criteria: [{ title: '', description: '', weight: 1, required: true, commentEnabled: false, commentRequired: false }],
+  criteria: [
+    {
+      title: '',
+      description: '',
+      weight: 1,
+      required: true,
+      commentEnabled: false,
+      commentRequired: false,
+    },
+  ],
 });
 
 type Mode =
   | { kind: 'new'; typeId: number | null; typeName: string | null }
   | { kind: 'edit'; versionId: number; templateName: string; data: VersionForm }
-  | { kind: 'newVersion'; fromId: number; templateName: string; data: VersionForm };
+  | {
+      kind: 'newVersion';
+      fromId: number;
+      templateName: string;
+      data: VersionForm;
+    };
 
 const toForm = (v: any): VersionForm => ({
   title: v.title,
@@ -79,7 +93,10 @@ const toForm = (v: any): VersionForm => ({
   feedbackLabel: v.feedbackLabel ?? '',
   sortOrder: v.sortOrder ?? 0,
   scaleLabelsText: (v.scaleLabels ?? []).map((l: any) => `${l.value} = ${l.label}`).join('\n'),
-  criteria: v.criteria.map((c: any) => ({ ...c, description: c.description ?? '' })),
+  criteria: v.criteria.map((c: any) => ({
+    ...c,
+    description: c.description ?? '',
+  })),
 });
 
 /** Etapa 3 — tipos de rubrica: cada tipo reúne as fichas usadas juntas numa banca. */
@@ -93,6 +110,8 @@ export function RubricsTab() {
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   const d = data!;
   const untyped = d.templates.filter((t) => t.typeId === null);
+  // Tipos excluídos ficam só na Lixeira (a lista ainda os traz para exibir vínculos taxados).
+  const listedTypes = d.types.filter((t) => !t.deleted);
   const eventsOf = (typeId: number) => events.filter((e) => e.rubricTypeId === typeId).map((e) => e.name);
 
   const moveTemplate = async (templateId: number, typeId: number | null) => {
@@ -107,7 +126,9 @@ export function RubricsTab() {
     // Posições iguais (dados antigos) também são desfeitas: usa o índice como posição.
     const pa = a.typePosition === b.typePosition ? b.typePosition + 1 : b.typePosition;
     await api.patch(`/api/rubric-templates/${a.id}`, { typePosition: pa });
-    await api.patch(`/api/rubric-templates/${b.id}`, { typePosition: a.typePosition });
+    await api.patch(`/api/rubric-templates/${b.id}`, {
+      typePosition: a.typePosition,
+    });
     await reload(true);
   };
 
@@ -118,7 +139,13 @@ export function RubricsTab() {
           {event ? (
             <>
               A banca <strong>{event.name}</strong> usa:{' '}
-              {event.rubricTypeId ? <strong>{d.types.find((t) => t.id === event.rubricTypeId)?.name}</strong> : <span className="warn-text">nenhum tipo ainda</span>}{' '}
+              {event.rubricTypeId ? (
+                <strong>
+                  <Struck deleted={d.types.find((t) => t.id === event.rubricTypeId)?.deleted}>{d.types.find((t) => t.id === event.rubricTypeId)?.name}</Struck>
+                </strong>
+              ) : (
+                <span className="warn-text">nenhum tipo ainda</span>
+              )}{' '}
               <button type="button" className="link" onClick={() => goTo('bancas')}>
                 (alterar em Banca e dias)
               </button>
@@ -130,22 +157,27 @@ export function RubricsTab() {
         <div className="row gap wrap">
           <ActionButton
             onAction={async () => {
-              await api.post('/api/templates/projeto-integrador', { eventId: null });
+              await api.post('/api/templates/projeto-integrador', {
+                eventId: null,
+              });
               await reload(true);
-              toast.push({ kind: 'success', text: 'Tipo "Projeto Integrador" com as 4 rubricas disponível.' });
+              toast.push({
+                kind: 'success',
+                text: 'Tipo "Projeto Integrador" com as 4 rubricas disponível.',
+              });
             }}
           >
             Instalar modelo Projeto Integrador
           </ActionButton>
-          <Button variant="primary" onClick={() => setTypeEdit('new')}>
+          <Button variant="create" onClick={() => setTypeEdit('new')}>
             + Novo tipo de rubrica
           </Button>
         </div>
       </div>
 
-      {d.types.length === 0 && <Empty>Nenhum tipo de rubrica ainda. Crie um tipo e adicione as rubricas (fichas) dele.</Empty>}
+      {listedTypes.length === 0 && <Empty>Nenhum tipo de rubrica ainda. Crie um tipo e adicione as rubricas (fichas) dele.</Empty>}
 
-      {d.types.map((type) => {
+      {listedTypes.map((type) => {
         const list = d.templates.filter((t) => t.typeId === type.id).sort((a, b) => a.typePosition - b.typePosition || a.id - b.id);
         const used = eventsOf(type.id);
         return (
@@ -153,7 +185,8 @@ export function RubricsTab() {
             <div className="card-title">
               <div>
                 <h3 id={`tipo-${type.id}`}>
-                  {type.name} {event?.rubricTypeId === type.id && <span className="pill pill-ok">usado por esta banca</span>}
+                  {type.name}{' '}
+                  {event?.rubricTypeId === type.id && <span className="pill pill-ok">usado por esta banca</span>}
                 </h3>
                 {type.description && <p className="muted small">{type.description}</p>}
                 <p className="small muted">
@@ -162,19 +195,18 @@ export function RubricsTab() {
                 </p>
               </div>
               <div className="row gap wrap">
-                <Button onClick={() => setTypeEdit(type)}>Editar tipo</Button>
-                {type.eventsUsing === 0 && type.groupsUsing === 0 && (
-                  <ActionButton
-                    variant="ghost"
-                    onAction={async () => {
-                      if (!window.confirm(`Excluir o tipo "${type.name}"? As rubricas continuam cadastradas, sem tipo.`)) return;
-                      await api.del(`/api/rubric-types/${type.id}`);
-                      await reload(true);
-                    }}
-                  >
-                    Excluir tipo
-                  </ActionButton>
-                )}
+                <Button variant="edit" onClick={() => setTypeEdit(type)}>Editar tipo</Button>
+                <ActionButton
+                  variant="delete"
+                  onAction={async () => {
+                    const inUse = type.eventsUsing + type.groupsUsing > 0;
+                    if (!window.confirm(`Mover o tipo "${type.name}" para a lixeira?${inUse ? ' Ele ainda está vinculado a bancas/grupos, que o exibirão taxado.' : ''} As rubricas continuam cadastradas.`)) return;
+                    await api.del(`/api/rubric-types/${type.id}`);
+                    await reload(true);
+                  }}
+                >
+                  Excluir tipo
+                </ActionButton>
               </div>
             </div>
             {list.length === 0 ? (
@@ -186,7 +218,7 @@ export function RubricsTab() {
                     key={t.id}
                     t={t}
                     index={i + 1}
-                    types={d.types}
+                    types={listedTypes}
                     onEdit={setMode}
                     onMove={(typeId) => void moveTemplate(t.id, typeId)}
                     onUp={i > 0 ? () => void swap(t, list[i - 1]!) : undefined}
@@ -196,7 +228,7 @@ export function RubricsTab() {
                 ))}
               </ol>
             )}
-            <Button onClick={() => setMode({ kind: 'new', typeId: type.id, typeName: type.name })}>+ Nova rubrica em “{type.name}”</Button>
+            <Button variant="create" onClick={() => setMode({ kind: 'new', typeId: type.id, typeName: type.name })}>+ Nova rubrica em “{type.name}”</Button>
           </section>
         );
       })}
@@ -207,7 +239,7 @@ export function RubricsTab() {
           <p className="muted small">Coloque cada rubrica em um tipo para usá-la numa banca de forma organizada.</p>
           <ol className="rubric-list">
             {untyped.map((t, i) => (
-              <TemplateItem key={t.id} t={t} index={i + 1} types={d.types} onEdit={setMode} onMove={(typeId) => void moveTemplate(t.id, typeId)} reload={() => reload(true)} />
+              <TemplateItem key={t.id} t={t} index={i + 1} types={listedTypes} onEdit={setMode} onMove={(typeId) => void moveTemplate(t.id, typeId)} reload={() => reload(true)} />
             ))}
           </ol>
         </section>
@@ -282,7 +314,7 @@ function TemplateItem({
           return (
             <div key={v.id} className="version">
               <p className="version-title">
-                v{v.version} — {v.title} · usada em {v.used} ficha(s) · {v.assigned} atribuição(ões)
+                v{v.version} — {v.title} · usada em {v.used} ficha(s){v.assigned > 0 && ` · versão vigente de ${v.assigned} atribuição(ões)`}
               </p>
               <div className="table-wrap">
                 <table className="table">
@@ -316,13 +348,40 @@ function TemplateItem({
                 </table>
               </div>
               <div className="row gap wrap">
-                {v.used === 0 && <Button onClick={() => onEdit({ kind: 'edit', versionId: v.id, templateName: t.name, data: toForm(v) })}>Editar esta versão</Button>}
-                <Button onClick={() => onEdit({ kind: 'newVersion', fromId: v.id, templateName: t.name, data: toForm(v) })}>Criar nova versão a partir desta</Button>
-                {v.used === 0 && v.assigned === 0 && (
+                {v.used === 0 && (
+                  <Button
+                    variant="edit"
+                    onClick={() =>
+                      onEdit({
+                        kind: 'edit',
+                        versionId: v.id,
+                        templateName: t.name,
+                        data: toForm(v),
+                      })
+                    }
+                  >
+                    Editar esta versão
+                  </Button>
+                )}
+                <Button
+                  variant="create"
+                  onClick={() =>
+                    onEdit({
+                      kind: 'newVersion',
+                      fromId: v.id,
+                      templateName: t.name,
+                      data: toForm(v),
+                    })
+                  }
+                >
+                  Criar nova versão a partir desta
+                </Button>
+                {/* Sem fichas abertas; atribuída, só se houver outra versão para assumir a ficha. */}
+                {v.used === 0 && (v.assigned === 0 || t.versions.length > 1) && (
                   <ActionButton
-                    variant="ghost"
+                    variant="delete"
                     onAction={async () => {
-                      if (!window.confirm('Excluir esta versão?')) return;
+                      if (!window.confirm('Mover esta versão para a lixeira?')) return;
                       await api.del(`/api/rubric-versions/${v.id}`);
                       await reload();
                     }}
@@ -405,19 +464,11 @@ function RubricDialog({ mode, onClose, onSaved }: { mode: Mode; onClose: () => v
       <Field label="Título da versão" required>
         {(p) => <input {...p} value={f.title} onChange={(e) => set({ title: e.target.value })} />}
       </Field>
-      <Field label="Responsabilidade / instruções aos avaliadores">
-        {(p) => <textarea {...p} rows={2} value={f.instructions} onChange={(e) => set({ instructions: e.target.value })} />}
-      </Field>
+      <Field label="Responsabilidade / instruções aos avaliadores">{(p) => <textarea {...p} rows={2} value={f.instructions} onChange={(e) => set({ instructions: e.target.value })} />}</Field>
       <div className="grid3">
-        <Field label="Nota mínima">
-          {(p) => <input {...p} type="number" step="any" value={f.scaleMin} onChange={(e) => set({ scaleMin: Number(e.target.value) })} />}
-        </Field>
-        <Field label="Nota máxima">
-          {(p) => <input {...p} type="number" step="any" value={f.scaleMax} onChange={(e) => set({ scaleMax: Number(e.target.value) })} />}
-        </Field>
-        <Field label="Incremento">
-          {(p) => <input {...p} type="number" step="any" min={0.01} value={f.scaleStep} onChange={(e) => set({ scaleStep: Number(e.target.value) })} />}
-        </Field>
+        <Field label="Nota mínima">{(p) => <input {...p} type="number" step="any" value={f.scaleMin} onChange={(e) => set({ scaleMin: Number(e.target.value) })} />}</Field>
+        <Field label="Nota máxima">{(p) => <input {...p} type="number" step="any" value={f.scaleMax} onChange={(e) => set({ scaleMax: Number(e.target.value) })} />}</Field>
+        <Field label="Incremento">{(p) => <input {...p} type="number" step="any" min={0.01} value={f.scaleStep} onChange={(e) => set({ scaleStep: Number(e.target.value) })} />}</Field>
       </div>
       {!isDefault && (
         <Field label="Normalização (obrigatória fora da escala 0–10)" error={!f.normalization ? 'Configure a normalização explicitamente.' : null}>
@@ -465,12 +516,19 @@ function RubricDialog({ mode, onClose, onSaved }: { mode: Mode; onClose: () => v
             </Field>
             <Field label="Peso relativo">{(p) => <output {...p}>{totalW ? formatScore((c.weight / totalW) * 100) : '—'}%</output>}</Field>
           </div>
-          <Field label="Descrição">
-            {(p) => <input {...p} value={c.description} onChange={(e) => setC(i, { description: e.target.value })} />}
-          </Field>
+          <Field label="Descrição">{(p) => <input {...p} value={c.description} onChange={(e) => setC(i, { description: e.target.value })} />}</Field>
           <div className="row gap wrap">
             <Checkbox label="Obrigatório" checked={c.required} onChange={(v) => setC(i, { required: v })} />
-            <Checkbox label="Campo de justificativa" checked={c.commentEnabled} onChange={(v) => setC(i, { commentEnabled: v, commentRequired: v && c.commentRequired })} />
+            <Checkbox
+              label="Campo de justificativa"
+              checked={c.commentEnabled}
+              onChange={(v) =>
+                setC(i, {
+                  commentEnabled: v,
+                  commentRequired: v && c.commentRequired,
+                })
+              }
+            />
             {c.commentEnabled && <Checkbox label="Justificativa obrigatória" checked={c.commentRequired} onChange={(v) => setC(i, { commentRequired: v })} />}
             <Button variant="ghost" disabled={i === 0} onClick={() => set({ criteria: swap(f.criteria, i, i - 1) })} aria-label={`Subir critério ${i + 1}`}>
               ↑
@@ -478,13 +536,32 @@ function RubricDialog({ mode, onClose, onSaved }: { mode: Mode; onClose: () => v
             <Button variant="ghost" disabled={i === f.criteria.length - 1} onClick={() => set({ criteria: swap(f.criteria, i, i + 1) })} aria-label={`Descer critério ${i + 1}`}>
               ↓
             </Button>
-            <Button variant="ghost" disabled={f.criteria.length <= 1} onClick={() => set({ criteria: f.criteria.filter((_, j) => j !== i) })}>
+            <Button variant="delete" className="btn-sm" disabled={f.criteria.length <= 1} onClick={() => set({ criteria: f.criteria.filter((_, j) => j !== i) })}>
               Remover
             </Button>
           </div>
         </fieldset>
       ))}
-      <Button onClick={() => set({ criteria: [...f.criteria, { title: '', description: '', weight: 1, required: true, commentEnabled: false, commentRequired: false }] })}>+ Critério</Button>
+      <Button
+        variant="create"
+        onClick={() =>
+          set({
+            criteria: [
+              ...f.criteria,
+              {
+                title: '',
+                description: '',
+                weight: 1,
+                required: true,
+                commentEnabled: false,
+                commentRequired: false,
+              },
+            ],
+          })
+        }
+      >
+        + Critério
+      </Button>
       {err && <Alert kind="error">{err}</Alert>}
       <div className="dialog-actions">
         <Button onClick={onClose}>Cancelar</Button>
@@ -504,9 +581,17 @@ function RubricDialog({ mode, onClose, onSaved }: { mode: Mode; onClose: () => v
                 dimensionShort: f.dimensionShort || null,
                 feedbackLabel: f.feedbackLabel || null,
                 scaleLabels: parseScaleLabels(scaleLabelsText),
-                criteria: f.criteria.map((c) => ({ ...c, description: c.description || null })),
+                criteria: f.criteria.map((c) => ({
+                  ...c,
+                  description: c.description || null,
+                })),
               };
-              if (mode.kind === 'new') await api.post('/api/rubrics', { name, typeId: mode.typeId, version: body });
+              if (mode.kind === 'new')
+                await api.post('/api/rubrics', {
+                  name,
+                  typeId: mode.typeId,
+                  version: body,
+                });
               else if (mode.kind === 'edit') await api.put(`/api/rubric-versions/${mode.versionId}`, body);
               else await api.post(`/api/rubric-versions/${mode.fromId}/new-version`, body);
               await onSaved();

@@ -133,7 +133,7 @@ export async function closureRoutes(app: FastifyInstance) {
       : await db.one<any>('select snapshot from evaluation_closures where group_id = $1 and reopened_at is null', [groupId]);
     if (!row) throw notFound(version ? 'Versão de fechamento não encontrada.' : 'O PDF só é gerado após o fechamento da avaliação.');
     const snap = row.snapshot as ClosureSnapshot;
-    const pdf = await renderReportPdf([snap], { compress: config.env !== 'test', logo: await eventLogo([groupId]) });
+    const pdf = await renderReportPdf([snap], { logo: await eventLogo([groupId]) });
     await audit(db, user.id, 'report.downloaded', 'group', groupId, { version: snap.closure.version });
     const fname = `avaliacao-${snap.group.code}-v${snap.closure.version}.pdf`.replace(/[^a-zA-Z0-9._-]/g, '_');
     return reply
@@ -156,7 +156,7 @@ export async function closureRoutes(app: FastifyInstance) {
     if (!rows.length) throw notFound('Nenhum projeto fechado neste dia.');
     const pdf = await renderReportPdf(
       rows.map((r) => r.snapshot as ClosureSnapshot),
-      { compress: config.env !== 'test', logo: await eventLogo([rows[0].group_id]) },
+      { logo: await eventLogo([rows[0].group_id]) },
     );
     await audit(db, user.id, 'report.batch_downloaded', 'event_day', dayId, { count: rows.length });
     return reply

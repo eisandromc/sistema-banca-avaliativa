@@ -13,15 +13,17 @@ export function ProfilesTab() {
     <div>
       <div className="row between wrap">
         <h2>Perfis de tempo</h2>
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <Button variant="create" onClick={() => setEditing('new')}>
           + Novo perfil
         </Button>
       </div>
       <p className="muted">
-        Cada apresentação copia as etapas do perfil no momento do início: editar um perfil não altera sessões já iniciadas. Durante a sessão, use “Ajustar tempos”.
+        Cada apresentação copia as etapas do perfil no momento do início: editar um perfil não altera sessões já iniciadas. Durante a sessão, use “Ajustar tempos”. Uma <strong>pausa</strong> (ex.: 30 s para preparar os
+        alunos) não conta na numeração das etapas; <strong>destacar entrada</strong> faz o cronômetro pulsar antes e logo depois da troca para a etapa (segundos configurados na banca, aba Regras).
       </p>
       <div className="cards">
-        {profiles.map((p) => (
+        {/* Perfis excluídos ficam só na Lixeira (a lista ainda os traz para exibir vínculos taxados). */}
+        {profiles.filter((p) => !p.deleted).map((p) => (
           <section key={p.id} className={`card ${p.active ? '' : 'inactive'}`}>
             <div className="row between">
               <h3>{p.name}</h3>
@@ -31,6 +33,18 @@ export function ProfilesTab() {
               {p.stages.map((s: Stage, i: number) => (
                 <li key={i}>
                   <span className="swatch" style={{ background: s.color }} aria-hidden="true" /> {s.name} — {formatClock(s.durationSeconds * 1000)}
+                  {s.pause && (
+                    <>
+                      {' '}
+                      <span className="pill">pausa</span>
+                    </>
+                  )}
+                  {s.alert && (
+                    <>
+                      {' '}
+                      <span className="pill pill-info">destaque na entrada</span>
+                    </>
+                  )}
                 </li>
               ))}
             </ol>
@@ -38,8 +52,9 @@ export function ProfilesTab() {
               <strong>Total: {formatClock(p.totalSeconds * 1000)}</strong> · em uso: {p.usage}
             </p>
             <div className="row gap">
-              <Button onClick={() => setEditing(p)}>Editar</Button>
+              <Button variant="edit" onClick={() => setEditing(p)}>Editar</Button>
               <ActionButton
+                variant="create"
                 onAction={async () => {
                   await api.post(`/api/profiles/${p.id}/duplicate`);
                   await reloadProfiles();
@@ -48,9 +63,9 @@ export function ProfilesTab() {
                 Duplicar
               </ActionButton>
               <ActionButton
-                variant="ghost"
+                variant="delete"
                 onAction={async () => {
-                  if (!window.confirm(`Excluir o perfil "${p.name}"?`)) return;
+                  if (!window.confirm(`Mover o perfil "${p.name}" para a lixeira?${p.usage ? ` Ele ainda é usado por ${p.usage} dia(s)/grupo(s), que o exibirão taxado.` : ''}`)) return;
                   await api.del(`/api/profiles/${p.id}`);
                   await reloadProfiles();
                 }}
@@ -66,14 +81,42 @@ export function ProfilesTab() {
   );
 }
 
-function ProfileDialog({ initial, onClose, onSaved }: { initial: { id: number; name: string; active: boolean; stages: Stage[] } | null; onClose: () => void; onSaved: () => Promise<void> }) {
+function ProfileDialog({
+  initial,
+  onClose,
+  onSaved,
+}: {
+  initial: {
+    id: number;
+    name: string;
+    active: boolean;
+    stages: Stage[];
+  } | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
   const [name, setName] = useState(initial?.name ?? '');
   const [active, setActive] = useState(initial?.active ?? true);
   const [stages, setStages] = useState<Stage[]>(
     initial?.stages ?? [
       { name: 'Apresentação', durationSeconds: 600, color: '#2563eb' },
-      { name: 'Demonstração', durationSeconds: 300, color: '#7c3aed' },
-      { name: 'Perguntas e considerações', durationSeconds: 300, color: '#0f766e' },
+      {
+        name: 'Demonstração',
+        durationSeconds: 300,
+        color: '#7c3aed',
+        alert: true,
+      },
+      {
+        name: 'Pausa — preparação',
+        durationSeconds: 30,
+        color: '#64748b',
+        pause: true,
+      },
+      {
+        name: 'Perguntas e considerações',
+        durationSeconds: 300,
+        color: '#0f766e',
+      },
     ],
   );
   const [err, setErr] = useState<string | null>(null);

@@ -19,65 +19,66 @@ export interface ResolvedAssignment {
   groupSpecific: boolean;
 }
 
-/** Atribuições efetivas de um grupo: a específica do grupo sobrescreve a geral do dia. */
+/** Versão vigente de cada ficha (posição) de um tipo de rubrica: a mais recente que não está na lixeira. */
+export async function fichasOfType(q: Queryable, typeId: number): Promise<Map<number, { versionId: number; title: string }>> {
+  const rows = await q.query<{ type_position: number; id: number; title: string }>(
+    `select distinct on (t.type_position) t.type_position, v.id, v.title
+       from rubric_templates t join rubric_versions v on v.template_id = t.id
+      where t.type_id = $1 and t.type_position > 0 and v.deleted_at is null
+      order by t.type_position, t.id, v.version desc`,
+    [typeId],
+  );
+  return new Map(rows.map((r) => [r.type_position, { versionId: r.id, title: r.title }]));
+}
+
+/**
+ * Atribuições efetivas de um grupo: a específica do grupo sobrescreve a geral do dia. A atribuição guarda só a
+ * ficha (posição); a rubrica vem do tipo do grupo (ou da banca), na versão mais recente. Ficha que não existe
+ * no tipo fica de fora (a prontidão da banca aponta).
+ */
 export async function resolveAssignments(q: Queryable, dayId: number, groupId: number): Promise<ResolvedAssignment[]> {
-  const rows = await q.query<{ user_id: number; rubric_version_id: number; group_id: number | null }>(
-    `select distinct on (user_id) user_id, rubric_version_id, group_id
+  const rows = await q.query<{ user_id: number; rubric_position: number; group_id: number | null }>(
+    `select distinct on (user_id) user_id, rubric_position, group_id
        from evaluator_assignments
       where day_id = $1 and (group_id = $2 or group_id is null)
       order by user_id, group_id nulls last`,
     [dayId, groupId],
   );
-  const resolved = rows.map((r) => ({ userId: r.user_id, rubricVersionId: r.rubric_version_id, groupSpecific: r.group_id !== null }));
-  return mapToGroupType(q, groupId, resolved);
-}
-
-/**
- * Tipo de rubrica: o grupo usa o tipo dele (ou o da banca). Uma atribuição geral do dia feita com a rubrica de outro tipo
- * é trocada pela rubrica na mesma posição dentro do tipo do grupo (1ª ↔ 1ª, 2ª ↔ 2ª…), na versão mais recente.
- * Atribuições específicas do grupo e rubricas sem tipo valem como foram feitas.
- */
-async function mapToGroupType(q: Queryable, groupId: number, list: ResolvedAssignment[]): Promise<ResolvedAssignment[]> {
-  const general = list.filter((a) => !a.groupSpecific);
-  if (!general.length) return list;
+  if (!rows.length) return [];
   const g = await q.one<{ type_id: number | null }>(
     'select coalesce(g.rubric_type_id, e.rubric_type_id) as type_id from groups g join events e on e.id = g.event_id where g.id = $1',
     [groupId],
   );
-  if (!g?.type_id) return list;
-  const info = new Map(
-    (
-      await q.query<{ id: number; type_id: number | null; type_position: number }>(
-        'select v.id, t.type_id, t.type_position from rubric_versions v join rubric_templates t on t.id = v.template_id where v.id = any($1::int[])',
-        [general.map((a) => a.rubricVersionId)],
-      )
-    ).map((r) => [r.id, r]),
-  );
-  if (![...info.values()].some((r) => r.type_id !== null && r.type_id !== g.type_id)) return list;
-  const targets = new Map(
-    (
-      await q.query<{ type_position: number; id: number }>(
-        `select distinct on (t.type_position) t.type_position, v.id
-           from rubric_templates t join rubric_versions v on v.template_id = t.id
-          where t.type_id = $1 order by t.type_position, t.id, v.version desc`,
-        [g.type_id],
-      )
-    ).map((r) => [r.type_position, r.id]),
-  );
-  return list.map((a) => {
-    const r = info.get(a.rubricVersionId);
-    if (a.groupSpecific || !r || r.type_id === null || r.type_id === g.type_id) return a;
-    const target = targets.get(r.type_position);
-    return target ? { ...a, rubricVersionId: target } : a;
+  if (!g?.type_id) return [];
+  const fichas = await fichasOfType(q, g.type_id);
+  return rows.flatMap((r) => {
+    const f = fichas.get(r.rubric_position);
+    return f ? [{ userId: r.user_id, rubricVersionId: f.versionId, groupSpecific: r.group_id !== null }] : [];
   });
 }
 
+export interface StageRow {
+  name: string;
+  duration_seconds: number;
+  color: string;
+  is_pause: boolean;
+  alert: boolean;
+}
+
+/** Linha de time_stages → Stage (pausa/destaque só aparecem quando ligados). */
+export function stageFromRow(r: StageRow): Stage {
+  return {
+    name: r.name,
+    durationSeconds: r.duration_seconds,
+    color: r.color,
+    ...(r.is_pause ? { pause: true } : {}),
+    ...(r.alert ? { alert: true } : {}),
+  };
+}
+
 export async function loadProfileStages(q: Queryable, profileId: number): Promise<Stage[]> {
-  const rows = await q.query<{ name: string; duration_seconds: number; color: string }>(
-    'select name, duration_seconds, color from time_stages where profile_id = $1 order by position',
-    [profileId],
-  );
-  return rows.map((r) => ({ name: r.name, durationSeconds: r.duration_seconds, color: r.color }));
+  const rows = await q.query<StageRow>('select name, duration_seconds, color, is_pause, alert from time_stages where profile_id = $1 order by position', [profileId]);
+  return rows.map(stageFromRow);
 }
 
 export interface ScheduleRow {

@@ -126,10 +126,10 @@ test('ficha: se o salvamento falhar, o envio é bloqueado (nada diferente do exi
   await page.getByLabel('Senha').fill('demo1234');
   await page.getByRole('button', { name: 'Entrar' }).last().click();
   await page.getByRole('button', { name: /Banca de Cenários de Teste — DEMONSTRAÇÃO · Dia de cenários/ }).click();
-  // C-07 (pausado) é o grupo atual; a ficha do Bruno já está aberta.
-  await page.getByRole('textbox', { name: /^Solução técnica \*/ }).fill('5');
-  await page.getByRole('textbox', { name: /^Funcionamento \*/ }).fill('6');
-  await page.getByRole('textbox', { name: /^Organização \*/ }).fill('7');
+  // C-07 (pausado) é o grupo atual; a ficha do Bruno (Artigo e Pesquisa, níveis de 0 a 5) já está aberta.
+  const level = (criterion: number, value: number) =>
+    page.locator('.criterion').nth(criterion).locator('.scale-opt', { has: page.locator('.scale-value', { hasText: new RegExp(`^${value}$`) }) });
+  for (const [i, v] of [2, 3, 4, 3, 4].entries()) await level(i, v).click();
   await page.getByRole('radio', { name: 'Indicar', exact: true }).check();
   await expect(page.getByText('Rascunho salvo no servidor')).toBeVisible();
 
@@ -140,12 +140,12 @@ test('ficha: se o salvamento falhar, o envio é bloqueado (nada diferente do exi
     submitted = true;
     return r.continue();
   });
-  await page.getByRole('textbox', { name: /^Solução técnica \*/ }).fill('9');
+  await level(0, 5).click();
   await page.getByRole('button', { name: 'Enviar avaliação' }).click();
   await expect(page.getByText(/Não foi possível salvar as últimas alterações no servidor/)).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Confirmar envio da avaliação' })).toHaveCount(0);
   expect(submitted).toBe(false);
   // A edição continua na tela para nova tentativa.
-  await expect(page.getByRole('textbox', { name: /^Solução técnica \*/ })).toHaveValue('9');
+  await expect(level(0, 5)).toHaveClass(/selected/);
   await ctx.close();
 });

@@ -26,11 +26,12 @@ describe('demonstração', () => {
       expect(e.type, e.name).toBeTruthy();
       expect(e.n, e.name).toBeGreaterThanOrEqual(2);
     }
-    const groups = await env.db.query<any>("select g.code, g.advisors, g.pdf_url, g.slides_url, g.description from groups g join events e on e.id = g.event_id where e.name like '%DEMONSTRAÇÃO%'");
+    const groups = await env.db.query<any>("select g.code, g.advisors, g.pdf_url, g.slides_url, g.github_url, g.description from groups g join events e on e.id = g.event_id where e.name like '%DEMONSTRAÇÃO%'");
     expect(groups.length).toBeGreaterThan(10);
     for (const g of groups) {
       expect(g.advisors.length, g.code).toBeGreaterThan(0);
       expect(g.pdf_url, g.code).toBe(DEMO_LINKS.pdfUrl);
+      expect(g.github_url, g.code).toBe(DEMO_LINKS.githubUrl);
       expect(g.description, g.code).toBeTruthy();
     }
     // Um a cada três fica sem apresentação, para mostrar o caso vazio.
@@ -44,7 +45,8 @@ describe('demonstração', () => {
     await enrichDemoData(env.db);
     const g = await env.db.one<any>("select pdf_url from groups where code = 'Grupo 01'");
     expect(g.pdf_url).toBe('https://example.org/meu.pdf');
-    expect((await env.db.one<any>('select count(*)::int as n from rubric_types')).n).toBe(3);
+    // Projeto Integrador (todas as bancas de demonstração) + o tipo de exemplo que os testes vinculam à banca base.
+    expect((await env.db.one<any>('select count(*)::int as n from rubric_types')).n).toBe(2);
   });
 
   it('cores distintas: grupos novos da mesma banca não repetem a cor enquanto houver cores livres', async () => {

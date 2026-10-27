@@ -139,7 +139,7 @@ describe('distribuição dos grupos nos dias', () => {
 
   it('move para outro dia, renumera a origem e leva as atribuições específicas', async () => {
     const m01 = await id('M-01');
-    await admin.post(`/api/days/${dayId}/assignments`, { userId: env.seed.users.carla, rubricVersionId: env.seed.rubrics.tecnica, groupId: m01 });
+    expect((await admin.post(`/api/days/${dayId}/assignments`, { userId: env.seed.users.carla, rubricPosition: 1, groupId: m01 })).status).toBe(200);
     await admin.post(`/api/groups/${await id('Grupo 02')}/place`, { dayId: day2 });
     expect((await admin.post(`/api/groups/${m01}/place`, { dayId: day2, position: 1 })).status).toBe(200);
     expect(await schedule(day2)).toEqual(['M-01', 'Grupo 02']);
@@ -237,10 +237,15 @@ describe('tipos de rubrica', () => {
   });
 
   it('o roteiro pede o tipo de rubrica da banca', async () => {
-    const r1 = (await admin.get(`/api/events/${eventId}/readiness`)).body.checks.find((c: any) => c.key === 'rubrics');
-    expect(r1).toMatchObject({ status: 'warn', tab: 'bancas' });
     const ev = (await admin.get('/api/events')).body.events.find((e: any) => e.id === eventId);
     const { id: _i, days: _d, hasLogo: _h, ...rest } = ev;
+    expect((await admin.put(`/api/events/${eventId}`, { ...rest, rubricTypeId: null })).status).toBe(200);
+    const r1 = (await admin.get(`/api/events/${eventId}/readiness`)).body.checks.find((c: any) => c.key === 'rubrics');
+    expect(r1).toMatchObject({ status: 'warn', tab: 'bancas' });
+    // Sem tipo na banca, ninguém recebe ficha: a atribuição só aponta a ficha do tipo.
+    const day = (await admin.get(`/api/events/${eventId}/readiness`)).body.days[0].checks.find((c: any) => c.key === 'evaluators');
+    expect(day.status).toBe('todo');
+    expect((await admin.post(`/api/days/${dayId}/assignments`, { userId: env.seed.users.carla, rubricPosition: 1 })).status).toBe(400);
     expect((await admin.put(`/api/events/${eventId}`, { ...rest, rubricTypeId: typeA })).status).toBe(200);
     const r2 = (await admin.get(`/api/events/${eventId}/readiness`)).body.checks.find((c: any) => c.key === 'rubrics');
     expect(r2).toMatchObject({ status: 'ok' });
@@ -265,9 +270,12 @@ describe('tipos de rubrica', () => {
     expect(await rubricOf(carla)).toBe(b2);
   });
 
-  it('tipo em uso não pode ser excluído; tipo livre pode', async () => {
-    expect((await admin.del(`/api/rubric-types/${typeA}`)).status).toBe(409);
-    expect((await admin.del(`/api/rubric-types/${typeB}`)).status).toBe(409);
+  it('tipo em uso vai para a lixeira e segue listado como excluído; tipo livre também pode ser excluído', async () => {
+    expect((await admin.del(`/api/rubric-types/${typeA}`)).status).toBe(200);
+    const listed = (await admin.get('/api/rubrics')).body.types.find((t: any) => t.id === typeA);
+    expect(listed.deleted).toBe(true);
+    expect((await admin.post(`/api/trash/rubric_type/${typeA}/restore`)).status).toBe(200);
+    expect((await admin.get('/api/rubrics')).body.types.find((t: any) => t.id === typeA).deleted).toBe(false);
     const free = (await admin.post('/api/rubric-types', { name: 'Tipo livre (teste)' })).body.id;
     expect((await admin.del(`/api/rubric-types/${free}`)).status).toBe(200);
     expect((await ana.post('/api/rubric-types', { name: 'x' })).status).toBe(403);

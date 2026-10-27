@@ -19,10 +19,15 @@ export const stagesSchema = z
       name: z.string().trim().min(1).max(60),
       durationSeconds: z.number().int().min(1).max(86400),
       color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+      pause: z.boolean().optional(),
+      alert: z.boolean().optional(),
     }),
   )
   .min(1)
-  .max(20);
+  .max(20)
+  .refine((stages) => stages.some((s) => !s.pause), 'Inclua ao menos uma etapa que não seja pausa.')
+  // Sem chaves "false": a cópia das etapas na sessão fica igual à do perfil.
+  .transform((stages) => stages.map(({ pause, alert, ...s }) => ({ ...s, ...(pause ? { pause: true } : {}), ...(alert ? { alert: true } : {}) })));
 
 export async function liveRoutes(app: FastifyInstance) {
   const { db, timer, hub } = app.ctx;
@@ -53,7 +58,8 @@ export async function liveRoutes(app: FastifyInstance) {
     const user = req.user;
     const rows = await db.query<any>(
       `select d.id, d.label, d.date, d.room, e.id as event_id, e.name as event_name, e.public_display
-         from event_days d join events e on e.id = d.event_id order by d.date desc, d.id`,
+         from event_days d join events e on e.id = d.event_id
+        where d.deleted_at is null and e.deleted_at is null order by d.date desc, d.id`,
     );
     const out = [];
     for (const r of rows) {
@@ -78,10 +84,8 @@ export async function liveRoutes(app: FastifyInstance) {
 
   app.post('/days/:id/select', async (req) => {
     const { dayId, user } = await ctl(req);
-    const body = z
-      .object({ entryId: z.number().int().positive(), confirm: z.boolean().optional(), reason: z.string().trim().max(500).optional() })
-      .parse(req.body);
-    return timer.select(user.id, dayId, body.entryId, body);
+    const body = z.object({ entryId: z.number().int().positive() }).parse(req.body);
+    return timer.select(user.id, dayId, body.entryId);
   });
 
   app.post('/days/:id/timer/start', async (req) => {

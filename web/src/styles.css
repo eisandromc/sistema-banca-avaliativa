@@ -20,6 +20,14 @@
   --primary-text: #ffffff;
   --success: #15803d;
   --danger: #b42318;
+  /* Botões por ação: criar (verde), editar (azul), excluir (vermelho). */
+  --create: #15803d;
+  --create-hover: #166534;
+  --edit: #1f4fc4;
+  --edit-hover: #1a43a8;
+  --delete: #b42318;
+  --delete-hover: #912018;
+  --action-text: #ffffff;
   --focus: #f59e0b;
   --ok-bg: #e3f6e8;
   --ok-fg: #14532d;
@@ -65,6 +73,13 @@
     --primary-text: #0b1220;
     --success: #3fb96f;
     --danger: #ff7b6e;
+    --create: #3fb96f;
+    --create-hover: #5cc987;
+    --edit: #6d9bff;
+    --edit-hover: #8cb0ff;
+    --delete: #ff7b6e;
+    --delete-hover: #ff998f;
+    --action-text: #0b1220;
     --ok-bg: #12301d;
     --ok-fg: #b7f0cb;
     --warn-bg: #362a08;
@@ -91,6 +106,13 @@
   --primary-hover: #8cb0ff;
   --primary-weak: #1a2640;
   --primary-text: #0b1220;
+  --create: #3fb96f;
+  --create-hover: #5cc987;
+  --edit: #6d9bff;
+  --edit-hover: #8cb0ff;
+  --delete: #ff7b6e;
+  --delete-hover: #ff998f;
+  --action-text: #0b1220;
 }
 
 * {
@@ -451,6 +473,40 @@ hr.sep {
 .btn-danger:hover:not(:disabled) {
   background: var(--err-bg);
 }
+.btn-create,
+.btn-edit,
+.btn-delete {
+  color: var(--action-text);
+}
+.btn-create {
+  background: var(--create);
+  border-color: var(--create);
+}
+.btn-create:hover:not(:disabled) {
+  background: var(--create-hover);
+  border-color: var(--create-hover);
+}
+.btn-edit {
+  background: var(--edit);
+  border-color: var(--edit);
+}
+.btn-edit:hover:not(:disabled) {
+  background: var(--edit-hover);
+  border-color: var(--edit-hover);
+}
+.btn-delete {
+  background: var(--delete);
+  border-color: var(--delete);
+}
+.btn-delete:hover:not(:disabled) {
+  background: var(--delete-hover);
+  border-color: var(--delete-hover);
+}
+/* Compacto, para ações dentro de listas e tabelas. */
+.btn-sm {
+  min-height: 34px;
+  padding: 4px 10px;
+}
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -736,6 +792,10 @@ input.num {
 }
 .row-actions {
   white-space: nowrap;
+}
+/* Botões coloridos lado a lado (editar, excluir) não podem encostar. */
+.row-actions > .btn + .btn {
+  margin-left: 6px;
 }
 tr.is-current td {
   background: var(--info-bg);
@@ -1926,6 +1986,69 @@ ul.plain {
 .seg-mark {
   font-size: 0.85em;
 }
+/* Pausa entre etapas: segmento hachurado. */
+.segment-pause {
+  background: repeating-linear-gradient(135deg, var(--surface-3) 0 4px, transparent 4px 8px);
+}
+.timer.is-pause .clock-stage .clock-digits {
+  color: var(--text-2);
+}
+
+/* Alerta de troca de etapa: faixa e moldura na cor da etapa destacada, pulsando. */
+.stage-alert {
+  --alert-color: var(--lvl-warn);
+}
+.stage-alert-banner {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 0.4em;
+  padding: 0.2em 0.9em;
+  border-radius: 999px;
+  background: var(--alert-color);
+  color: #fff;
+  font-weight: 800;
+}
+.stage-alert-banner strong {
+  color: inherit;
+}
+.timer-compact.stage-alert {
+  border-color: var(--alert-color);
+  box-shadow: 0 0 0 3px var(--alert-color);
+}
+.timer-projection.stage-alert {
+  box-shadow: inset 0 0 0 clamp(6px, 1vw, 14px) var(--alert-color);
+}
+.timer-projection .stage-alert-banner {
+  margin-inline: auto;
+  font-size: clamp(1.2rem, 2.6vw, 2.6rem);
+}
+.stage-alert:not(.no-motion) .stage-alert-banner,
+.stage-alert:not(.no-motion) .clock-stage .clock-digits {
+  animation: stage-pulse 1s ease-in-out infinite;
+}
+.timer-compact.stage-alert:not(.no-motion),
+.timer-projection.stage-alert:not(.no-motion) {
+  animation: stage-glow 1s ease-in-out infinite;
+}
+@keyframes stage-pulse {
+  50% {
+    transform: scale(1.06);
+    opacity: 0.8;
+  }
+}
+@keyframes stage-glow {
+  50% {
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-alert .stage-alert-banner,
+  .stage-alert .clock-stage .clock-digits,
+  .timer.stage-alert {
+    animation: none !important;
+  }
+}
 
 /* --- Cronômetro compacto (área do professor) --- */
 .timer-compact {
@@ -2326,6 +2449,24 @@ ul.plain {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.material-input {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.file-slot {
+  display: grid;
+  gap: 6px;
+}
+.file-slot-name {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .logo-preview {
@@ -3136,4 +3277,14 @@ details.more > summary {
   flex: 1 1 140px;
   min-width: 0;
   font-size: 0.85rem;
+}
+
+/* Item excluído ainda vinculado: taxado e em vermelho */
+.struck,
+.struck * {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+.trash-table td .struck {
+  text-decoration: none;
 }

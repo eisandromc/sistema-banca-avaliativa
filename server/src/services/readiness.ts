@@ -38,17 +38,22 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 export async function eventReadiness(q: Queryable, eventId: number): Promise<EventReadiness> {
   const ev = await q.one<any>('select id, aggregation, verdict_options, school_location, rubric_type_id from events where id = $1', [eventId]);
   if (!ev) throw notFound('Banca não encontrada.');
-  const days = await q.query<any>('select id, label, date, room, default_profile_id, primary_user_id, display_active_at from event_days where event_id = $1 order by date, id', [eventId]);
+  const days = await q.query<any>('select id, label, date, room, default_profile_id, primary_user_id, display_active_at from event_days where event_id = $1 and deleted_at is null order by date, id', [eventId]);
   const groups = await q.query<any>(
     `select g.id, g.code, (select count(*)::int from group_students s where s.group_id = g.id) as students,
             exists(select 1 from schedule_entries e where e.group_id = g.id) as scheduled
-       from groups g where g.event_id = $1 order by g.code`,
+       from groups g where g.event_id = $1 and g.deleted_at is null order by g.code`,
     [eventId],
   );
-  const rubricCount = (await q.one<{ n: number }>('select count(*)::int as n from rubric_versions'))!.n;
+  // Rubricas de um tipo que está na lixeira também contam como excluídas.
+  const rubricCount = (await q.one<{ n: number }>(
+    `select count(*)::int as n from rubric_versions v
+      where v.deleted_at is null
+        and not exists (select 1 from rubric_templates t join rubric_types ty on ty.id = t.type_id where t.id = v.template_id and ty.deleted_at is not null)`,
+  ))!.n;
   const type = ev.rubric_type_id
-    ? await q.one<{ name: string; n: number }>(
-        'select t.name, (select count(*)::int from rubric_templates r where r.type_id = t.id) as n from rubric_types t where t.id = $1',
+    ? await q.one<{ name: string; n: number; deleted: boolean }>(
+        'select t.name, (select count(*)::int from rubric_templates r where r.type_id = t.id) as n, (t.deleted_at is not null) as deleted from rubric_types t where t.id = $1',
         [ev.rubric_type_id],
       )
     : null;
@@ -81,9 +86,11 @@ export async function eventReadiness(q: Queryable, eventId: number): Promise<Eve
       ? { key: 'rubrics', label: 'Tipo de rubrica', status: 'todo', detail: 'Crie um tipo de rubrica com suas rubricas, ou instale o modelo do Projeto Integrador.', tab: 'rubricas' }
       : !type
         ? { key: 'rubrics', label: 'Tipo de rubrica', status: 'warn', detail: 'Vincule um tipo de rubrica à banca (Editar banca).', tab: 'bancas' }
-        : type.n === 0
-          ? { key: 'rubrics', label: 'Tipo de rubrica', status: 'todo', detail: `O tipo "${type.name}" ainda não tem rubricas.`, tab: 'rubricas' }
-          : { key: 'rubrics', label: 'Tipo de rubrica', status: 'ok', detail: `${type.name}: ${plural(type.n, 'rubrica', 'rubricas')}.`, tab: 'rubricas' },
+        : type.deleted
+          ? { key: 'rubrics', label: 'Tipo de rubrica', status: 'todo', detail: `O tipo "${type.name}" está na lixeira: vincule outro tipo à banca (Editar banca) ou restaure-o.`, tab: 'bancas' }
+          : type.n === 0
+            ? { key: 'rubrics', label: 'Tipo de rubrica', status: 'todo', detail: `O tipo "${type.name}" ainda não tem rubricas.`, tab: 'rubricas' }
+            : { key: 'rubrics', label: 'Tipo de rubrica', status: 'ok', detail: `${type.name}: ${plural(type.n, 'rubrica', 'rubricas')}.`, tab: 'rubricas' },
   );
   const verdictOptions: string[] = Array.isArray(ev.verdict_options) ? ev.verdict_options : [];
   if (verdictOptions.length && !ev.school_location) {
@@ -94,7 +101,7 @@ export async function eventReadiness(q: Queryable, eventId: number): Promise<Eve
   for (const d of days) {
     const sched = await getDaySchedule(q, d.id);
     const dc: ReadinessCheck[] = [];
-    const primary = d.primary_user_id ? await q.one<any>('select name, active, role from users where id = $1', [d.primary_user_id]) : null;
+    const primary = d.primary_user_id ? await q.one<any>('select name, (active and deleted_at is null) as active, role from users where id = $1', [d.primary_user_id]) : null;
     dc.push(
       !primary
         ? { key: 'primary', label: 'Professor primário', status: 'todo', detail: 'Designe quem conduz o tempo e o fechamento.', tab: 'avaliadores' }
@@ -138,19 +145,38 @@ export async function eventReadiness(q: Queryable, eventId: number): Promise<Eve
       const assigned = await resolveAssignments(q, d.id, e.groupId);
       if (!assigned.length) without.push(e.code);
       for (const a of assigned) {
-        const u = await q.one<any>('select name, active, role from users where id = $1', [a.userId]);
+        const u = await q.one<any>('select name, (active and deleted_at is null) as active, role from users where id = $1', [a.userId]);
         if (u && (!u.active || u.role !== 'teacher')) inactive.add(u.name);
       }
     }
+    // Ficha atribuída que não existe no tipo de rubrica do grupo: o docente ficaria sem ficha nesse grupo.
+    const missing = await q.query<{ code: string; p: number }>(
+      `select g.code, a.rubric_position as p
+         from schedule_entries se join groups g on g.id = se.group_id join events ev on ev.id = g.event_id
+         join evaluator_assignments a on a.day_id = se.day_id and (a.group_id = g.id or a.group_id is null)
+        where se.day_id = $1
+          and not exists (select 1 from rubric_templates t join rubric_versions v on v.template_id = t.id
+                           where t.type_id = coalesce(g.rubric_type_id, ev.rubric_type_id) and t.type_position = a.rubric_position and v.deleted_at is null)
+        group by g.code, a.rubric_position order by g.code, a.rubric_position`,
+      [d.id],
+    );
     const dayAssignments = (await q.one<{ n: number }>('select count(distinct user_id)::int as n from evaluator_assignments where day_id = $1', [d.id]))!.n;
     dc.push(
       without.length
         ? { key: 'evaluators', label: 'Avaliadores', status: 'todo', detail: `Grupos sem avaliador: ${without.join(', ')}.`, tab: 'avaliadores' }
-        : inactive.size
-          ? { key: 'evaluators', label: 'Avaliadores', status: 'warn', detail: `Conta inativa ou sem perfil de professor: ${[...inactive].join(', ')}.`, tab: 'avaliadores' }
-          : sched.entries.length
-            ? { key: 'evaluators', label: 'Avaliadores', status: 'ok', detail: plural(dayAssignments, 'docente avaliador', 'docentes avaliadores'), tab: 'avaliadores' }
-            : { key: 'evaluators', label: 'Avaliadores', status: 'todo', detail: 'Vincule os docentes às rubricas deste dia.', tab: 'avaliadores' },
+        : missing.length
+          ? {
+              key: 'evaluators',
+              label: 'Avaliadores',
+              status: 'todo',
+              detail: `Ficha que não existe no tipo de rubrica do grupo: ${missing.map((m) => `${m.code} (${m.p}ª ficha)`).join(', ')}.`,
+              tab: 'avaliadores',
+            }
+          : inactive.size
+            ? { key: 'evaluators', label: 'Avaliadores', status: 'warn', detail: `Conta inativa ou sem perfil de professor: ${[...inactive].join(', ')}.`, tab: 'avaliadores' }
+            : sched.entries.length
+              ? { key: 'evaluators', label: 'Avaliadores', status: 'ok', detail: plural(dayAssignments, 'docente avaliador', 'docentes avaliadores'), tab: 'avaliadores' }
+              : { key: 'evaluators', label: 'Avaliadores', status: 'todo', detail: 'Vincule os docentes às fichas deste dia.', tab: 'avaliadores' },
     );
     out.push({
       dayId: d.id,

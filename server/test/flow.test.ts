@@ -429,10 +429,15 @@ describe('troca de grupo e exceções', () => {
     const g2 = entries[1]!;
     expect((await ana.post(`/api/days/${dayId}/select`, { entryId: g2.entryId })).status).toBe(200);
     expect((await ana.post(`/api/days/${dayId}/timer/start`, { entryId: g2.entryId })).status).toBe(200);
-    // tentar voltar ao Grupo 01 com o 02 em andamento exige confirmação + justificativa
-    const noConfirm = await ana.post(`/api/days/${dayId}/select`, { entryId: entries[0]!.entryId });
-    expect(noConfirm.status).toBe(409);
-    expect(noConfirm.body.code).toBe('CONFIRM_REQUIRED');
+    // com o 02 em andamento (ou pausado), não é possível selecionar outro grupo — nem com justificativa
+    const blocked = await ana.post(`/api/days/${dayId}/select`, { entryId: entries[0]!.entryId });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe('PRESENTATION_ACTIVE');
+    const legacy = await ana.post(`/api/days/${dayId}/select`, { entryId: entries[0]!.entryId, confirm: true, reason: 'Troca forçada' });
+    expect(legacy.status).toBe(409);
+    expect((await ana.post(`/api/days/${dayId}/timer/pause`)).status).toBe(200);
+    expect((await ana.post(`/api/days/${dayId}/select`, { entryId: entries[0]!.entryId })).body.code).toBe('PRESENTATION_ACTIVE');
+    expect((await ana.post(`/api/days/${dayId}/timer/resume`)).status).toBe(200);
     const active = await env.db.query("select * from timer_sessions where day_id = $1 and status in ('running','paused')", [dayId]);
     expect(active).toHaveLength(1);
     // o Grupo 01 segue fechado, com seu PDF
@@ -467,7 +472,7 @@ describe('troca de grupo e exceções', () => {
 
   it('rubrica usada não pode ser alterada retroativamente (exige nova versão)', async () => {
     const rubrics = (await admin.get('/api/rubrics')).body.templates;
-    const v = rubrics[0].versions[0];
+    const v = rubrics.flatMap((t: any) => t.versions).find((x: any) => x.used > 0);
     const body = {
       title: v.title,
       scaleMin: 0,
@@ -497,21 +502,24 @@ describe('troca de grupo e exceções', () => {
 });
 
 describe('professor primário também avalia', () => {
-  it('designação exige rubrica, cria a atribuição e o primário recebe a ficha como os demais', async () => {
+  it('designação exige a ficha, cria a atribuição e o primário recebe a ficha como os demais', async () => {
     const u = await admin.post('/api/users', { name: 'Prof. Primário Novo (Demo)', email: 'primnovo@demo.banca', role: 'teacher', password: 'demo12345' });
     expect(u.status).toBe(200);
-    const rubricId = env.seed.rubrics.comunicacao;
-    const semRubrica = await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id });
-    expect(semRubrica.status).toBe(400);
-    const ok = await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id, rubricVersionId: rubricId });
+    const semFicha = await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id });
+    expect(semFicha.status).toBe(400);
+    // Só fichas do tipo de rubrica da banca (2 fichas: técnica e comunicação).
+    expect((await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id, rubricPosition: 3 })).status).toBe(400);
+    const ok = await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id, rubricPosition: 2 });
     expect(ok.status).toBe(200);
     const assignments = (await admin.get(`/api/days/${dayId}/assignments`)).body.assignments;
-    expect(assignments.filter((a: any) => a.userId === u.body.id)).toEqual([expect.objectContaining({ groupId: null, rubricVersionId: rubricId })]);
-    // Redesignar com outra rubrica atualiza (não duplica) a atribuição.
-    await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id, rubricVersionId: env.seed.rubrics.tecnica });
+    expect(assignments.filter((a: any) => a.userId === u.body.id)).toEqual([
+      expect.objectContaining({ groupId: null, rubricPosition: 2, rubricTitle: 'Avaliação de comunicação' }),
+    ]);
+    // Redesignar com outra ficha atualiza (não duplica) a atribuição.
+    await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id, rubricPosition: 1 });
     const again = (await admin.get(`/api/days/${dayId}/assignments`)).body.assignments.filter((a: any) => a.userId === u.body.id);
     expect(again).toHaveLength(1);
-    expect(again[0].rubricVersionId).toBe(env.seed.rubrics.tecnica);
+    expect(again[0].rubricPosition).toBe(1);
 
     const prim = await env.login('primnovo@demo.banca', 'demo12345');
     const ws = (await prim.get(`/api/days/${dayId}/workspace`)).body;

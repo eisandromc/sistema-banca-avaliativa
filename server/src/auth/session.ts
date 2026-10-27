@@ -34,7 +34,7 @@ export async function userFromToken(db: Queryable, token: string | undefined): P
   return db.one<SessionUser>(
     `select u.id, u.name, u.email, u.role
        from auth_sessions s join users u on u.id = s.user_id
-      where s.token_hash = $1 and s.expires_at > now() and u.active`,
+      where s.token_hash = $1 and s.expires_at > now() and u.active and u.deleted_at is null`,
     [sha256(token)],
   );
 }
@@ -93,7 +93,8 @@ export interface DayAccess {
 
 export async function getDayAccess(q: Queryable, user: SessionUser | null, dayId: number): Promise<DayAccess> {
   const day = await q.one<{ id: number; event_id: number; primary_user_id: number | null }>(
-    'select id, event_id, primary_user_id from event_days where id = $1',
+    `select d.id, d.event_id, d.primary_user_id from event_days d join events e on e.id = d.event_id
+      where d.id = $1 and d.deleted_at is null and e.deleted_at is null`,
     [dayId],
   );
   if (!day) throw notFound('Dia de banca não encontrado.');

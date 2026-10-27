@@ -2,7 +2,7 @@
 
 Este roteiro serve para conferir o sistema pela interface, com a **Banca de Cenários de Teste — DEMONSTRAÇÃO**. Essa banca é criada automaticamente fora de produção e traz **um grupo em cada situação do processo**. Todos os dados são **fictícios**, e todas as contas usam a senha `demo1234`.
 
-Os cenários são produzidos pelos próprios serviços do sistema (cronômetro, fichas, fechamento, reabertura e exceções), com as mesmas regras e a mesma auditoria do uso real. Para não criá-los, use `SEED_SCENARIOS=0`. Para recriá-los do zero, apague a pasta `.data/pglite` com o servidor parado; isso apaga **todos** os dados locais.
+Os cenários são produzidos pelos próprios serviços do sistema (cronômetro, fichas, fechamento, reabertura e exceções), com as mesmas regras e a mesma auditoria do uso real. Eles existem só no ambiente TESTE (`AMBIENTE=TESTE`). Para recriá-los do zero, apague a pasta `.data/pglite-teste` com o servidor parado; isso apaga **todos** os dados do ambiente TESTE.
 
 ## Contas
 

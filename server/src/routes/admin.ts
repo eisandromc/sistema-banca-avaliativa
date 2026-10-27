@@ -4,13 +4,18 @@ import type { Queryable } from '../db/database.ts';
 import { getDayAccess, requireAdmin, requireUser } from '../auth/session.ts';
 import { badRequest, conflict, forbidden, notFound, paramId } from '../http.ts';
 import { audit } from '../audit.ts';
+import { softDelete } from '../services/trash.ts';
 import { hashPassword } from '../auth/password.ts';
 import { validateDayTimes } from '../../../shared/schedule.ts';
-import { getDaySchedule, resolveAssignments } from '../services/schedule.ts';
+import { fichasOfType, getDaySchedule, resolveAssignments, stageFromRow } from '../services/schedule.ts';
 import { stagesSchema } from './live.ts';
 import { applyPiEventConfig, installPiRubrics } from '../templates/projetoIntegrador.ts';
 import { eventReadiness } from '../services/readiness.ts';
-import { isSafeLink, nextGroupColor } from '../../../shared/groups.ts';
+import { GROUP_FILE_MAX_BYTES, isGithubLink, isSafeLink, nextGroupColor } from '../../../shared/groups.ts';
+import { groupFilesFor, parseFileKind, uploadedFile, validateGroupFile } from '../services/groupFiles.ts';
+
+// Limite do corpo no envio de arquivos do grupo: o arquivo mais uma folga.
+const GROUP_FILE_BODY_LIMIT = GROUP_FILE_MAX_BYTES + 1024 * 1024;
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM');
 const optText = (max = 500) =>
@@ -43,6 +48,8 @@ const eventSchema = z.object({
   publicDisplay: z.boolean().default(true),
   warnPct: z.number().int().min(2).max(99).default(50),
   dangerPct: z.number().int().min(1).max(98).default(20),
+  stageAlertBeforeSeconds: z.number().int().min(0).max(120).default(15),
+  stageAlertAfterSeconds: z.number().int().min(0).max(60).default(5),
   editAfterSubmit: z.enum(['locked', 'until_closure']).default('locked'),
   votePrivacy: z.enum(['nominal', 'anonymous']).default('nominal'),
   institutionDetail: optText(200),
@@ -88,6 +95,8 @@ const groupSchema = z
     projectUrl: link(false),
     pdfUrl: link(true),
     slidesUrl: link(true),
+    /** Repositório do projeto (https://github.com/…). */
+    githubUrl: link(false).refine((v) => v === null || isGithubLink(v), 'use um link do GitHub (https://github.com/…)'),
     color: z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
@@ -167,12 +176,14 @@ async function replaceStages(q: Queryable, profileId: number, stages: z.infer<ty
   await q.query('delete from time_stages where profile_id = $1', [profileId]);
   let i = 0;
   for (const s of stages) {
-    await q.query('insert into time_stages (profile_id, position, name, duration_seconds, color) values ($1, $2, $3, $4, $5)', [
+    await q.query('insert into time_stages (profile_id, position, name, duration_seconds, color, is_pause, alert) values ($1, $2, $3, $4, $5, $6, $7)', [
       profileId,
       i++,
       s.name,
       s.durationSeconds,
       s.color,
+      !!s.pause,
+      !!s.alert,
     ]);
   }
 }
@@ -234,6 +245,32 @@ async function versionInUse(q: Queryable, versionId: number) {
   return !!(await q.one('select 1 from evaluations where rubric_version_id = $1 limit 1', [versionId]));
 }
 
+/** Atribuições que hoje resolvem para a versão `v` (a vigente da ficha no tipo da banca); usar com o alias `v`. */
+const ASSIGNED_SQL = `(select count(*)::int from evaluator_assignments a
+    join event_days d on d.id = a.day_id and d.deleted_at is null
+    join events e on e.id = d.event_id and e.deleted_at is null
+    join rubric_templates t on t.id = v.template_id
+   where e.rubric_type_id = t.type_id and a.rubric_position = t.type_position
+     and not exists (select 1 from rubric_versions n where n.template_id = v.template_id and n.deleted_at is null and n.version > v.version))`;
+
+/**
+ * A rubrica vem do tipo da banca (ou do grupo); a atribuição só escolhe a ficha. Garante que a ficha existe
+ * no tipo que vale para o dia (ou para o grupo, na atribuição específica).
+ */
+async function requireFicha(q: Queryable, dayId: number, position: number, groupId: number | null = null) {
+  const r = await q.one<{ type_id: number | null; type_name: string | null }>(
+    `select t.id as type_id, t.name as type_name
+       from event_days d join events e on e.id = d.event_id
+       left join groups g on g.id = $2
+       left join rubric_types t on t.id = coalesce(g.rubric_type_id, e.rubric_type_id)
+      where d.id = $1 and d.deleted_at is null`,
+    [dayId, groupId],
+  );
+  if (!r) throw badRequest('Dia inválido.');
+  if (!r.type_id) throw badRequest('Vincule um tipo de rubrica à banca (Editar banca) antes de designar avaliadores.');
+  if (!(await fichasOfType(q, r.type_id)).has(position)) throw badRequest(`A ${position}ª ficha não existe no tipo de rubrica "${r.type_name}".`);
+}
+
 async function dayHasStarted(q: Queryable, dayId: number) {
   return !!(await q.one('select 1 from schedule_entries where day_id = $1 and started_at is not null limit 1', [dayId]));
 }
@@ -254,11 +291,15 @@ export async function adminRoutes(app: FastifyInstance) {
     requireAdmin(req);
     const one = async (sql: string) => (await db.one<{ n: number }>(sql))!.n;
     return {
-      events: await one('select count(*)::int as n from events'),
-      days: await one('select count(*)::int as n from event_days'),
-      groups: await one('select count(*)::int as n from groups'),
-      teachers: await one("select count(*)::int as n from users where role = 'teacher' and active"),
-      rubrics: await one('select count(*)::int as n from rubric_versions'),
+      events: await one('select count(*)::int as n from events where deleted_at is null'),
+      days: await one('select count(*)::int as n from event_days where deleted_at is null'),
+      groups: await one('select count(*)::int as n from groups where deleted_at is null'),
+      teachers: await one("select count(*)::int as n from users where role = 'teacher' and active and deleted_at is null"),
+      rubrics: await one(
+        `select count(*)::int as n from rubric_versions v
+          where v.deleted_at is null
+            and not exists (select 1 from rubric_templates t join rubric_types ty on ty.id = t.type_id where t.id = v.template_id and ty.deleted_at is not null)`,
+      ),
       started: await one('select count(*)::int as n from schedule_entries where started_at is not null'),
       closed: await one('select count(*)::int as n from evaluation_closures where reopened_at is null'),
       running: await one("select count(*)::int as n from timer_sessions where status in ('running','paused')"),
@@ -274,11 +315,23 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---------- Usuários ----------
   app.get('/users', async (req) => {
     requireAdmin(req);
-    const users = await db.query<any>('select id, name, email, role, active, created_at as "createdAt" from users order by role, name');
+    // Usuário excluído só vem enquanto ainda estiver vinculado a um dia: a tela de contas o omite (fica só na Lixeira),
+    // mas os vínculos o exibem taxado.
+    const users = await db.query<any>(
+      `select u.id, u.name, u.email, u.role, u.active, u.created_at as "createdAt", (u.deleted_at is not null) as deleted
+         from users u
+        where u.deleted_at is null
+           or (u.purged_at is null and (
+                exists (select 1 from evaluator_assignments a join event_days d on d.id = a.day_id join events e on e.id = d.event_id
+                         where a.user_id = u.id and d.deleted_at is null and e.deleted_at is null)
+             or exists (select 1 from event_days d join events e on e.id = d.event_id
+                         where d.primary_user_id = u.id and d.deleted_at is null and e.deleted_at is null)))
+        order by u.role, u.name`,
+    );
     const days = await db.query<any>(
       `select a.user_id, d.id, d.label, d.date, e.name as event_name
          from evaluator_assignments a join event_days d on d.id = a.day_id join events e on e.id = d.event_id
-        where a.group_id is null order by d.date, d.id`,
+        where a.group_id is null and d.deleted_at is null and e.deleted_at is null order by d.date, d.id`,
     );
     return {
       users: users.map((u) => ({
@@ -326,7 +379,7 @@ export async function adminRoutes(app: FastifyInstance) {
       throw badRequest('Você não pode desativar nem rebaixar a própria conta.');
     }
     return db.tx(async (q) => {
-      const u = await q.one('select id from users where id = $1', [id]);
+      const u = await q.one('select id from users where id = $1 and deleted_at is null', [id]);
       if (!u) throw notFound();
       await q.query(
         `update users set name = coalesce($2, name), email = coalesce($3, email), role = coalesce($4, role), active = coalesce($5, active),
@@ -340,16 +393,29 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   /** Dias de banca do professor: em quais participa (atribuição geral do dia) e com qual rubrica. */
+  app.delete('/users/:id', async (req) => {
+    const admin = requireAdmin(req);
+    const id = paramId(req);
+    if (id === admin.id) throw badRequest('Você não pode excluir a própria conta.');
+    return db.tx(async (q) => {
+      if (!(await softDelete(q, 'user', id, admin.id))) throw notFound();
+      await q.query('delete from auth_sessions where user_id = $1', [id]);
+      await audit(q, admin.id, 'user.deleted', 'user', id, {});
+      return { ok: true };
+    });
+  });
+
   app.get('/users/:id/days', async (req) => {
     requireAdmin(req);
     const userId = paramId(req);
     const rows = await db.query<any>(
       `select d.id, d.label, d.date, d.room, e.name as event_name, d.primary_user_id,
-              a.rubric_version_id,
+              d.event_id, e.rubric_type_id as event_type_id, a.rubric_position,
               (select count(*)::int from evaluator_assignments g where g.day_id = d.id and g.user_id = $1 and g.group_id is not null) as group_specific,
               exists(select 1 from evaluations ev join schedule_entries se on se.id = ev.entry_id where se.day_id = d.id and ev.user_id = $1) as has_evaluations
          from event_days d join events e on e.id = d.event_id
          left join evaluator_assignments a on a.day_id = d.id and a.user_id = $1 and a.group_id is null
+        where d.deleted_at is null and e.deleted_at is null
         order by d.date, d.id`,
       [userId],
     );
@@ -360,8 +426,10 @@ export async function adminRoutes(app: FastifyInstance) {
         date: r.date,
         room: r.room,
         eventName: r.event_name,
-        assigned: r.rubric_version_id !== null,
-        rubricVersionId: r.rubric_version_id,
+        eventId: r.event_id,
+        eventTypeId: r.event_type_id,
+        assigned: r.rubric_position !== null,
+        rubricPosition: r.rubric_position,
         isPrimary: r.primary_user_id === userId,
         groupSpecific: r.group_specific,
         hasEvaluations: r.has_evaluations,
@@ -370,21 +438,21 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Define em quais dias o professor participa (lista completa): cria, atualiza a rubrica ou remove
+   * Define em quais dias o professor participa (lista completa): cria, atualiza a ficha ou remove
    * a atribuição geral de cada dia. Não remove dia em que ele já tem fichas ou é o professor primário.
    */
   app.put('/users/:id/days', async (req) => {
     const admin = requireAdmin(req);
     const userId = paramId(req);
     const body = z
-      .object({ days: z.array(z.object({ dayId: z.number().int().positive(), rubricVersionId: z.number().int().positive() })).max(200) })
+      .object({ days: z.array(z.object({ dayId: z.number().int().positive(), rubricPosition: z.number().int().positive() })).max(200) })
       .parse(req.body);
     return db.tx(async (q) => {
-      const u = await q.one<any>('select role, active from users where id = $1', [userId]);
+      const u = await q.one<any>('select role, active from users where id = $1 and deleted_at is null', [userId]);
       if (!u) throw notFound();
       if (body.days.length && u.role !== 'teacher') throw badRequest('Somente contas de professor participam das bancas como avaliadoras.');
-      const wanted = new Map(body.days.map((d) => [d.dayId, d.rubricVersionId]));
-      const current = await q.query<any>('select id, day_id, rubric_version_id from evaluator_assignments where user_id = $1 and group_id is null', [userId]);
+      const wanted = new Map(body.days.map((d) => [d.dayId, d.rubricPosition]));
+      const current = await q.query<any>('select id, day_id, rubric_position from evaluator_assignments where user_id = $1 and group_id is null', [userId]);
       const problems: string[] = [];
       for (const c of current) {
         if (wanted.has(c.day_id)) continue;
@@ -404,16 +472,16 @@ export async function adminRoutes(app: FastifyInstance) {
         if (!wanted.has(c.day_id)) {
           await q.query('delete from evaluator_assignments where id = $1', [c.id]);
           removed++;
-        } else if (wanted.get(c.day_id) !== c.rubric_version_id) {
-          await q.query('update evaluator_assignments set rubric_version_id = $2 where id = $1', [c.id, wanted.get(c.day_id)]);
+        } else if (wanted.get(c.day_id) !== c.rubric_position) {
+          await requireFicha(q, c.day_id, wanted.get(c.day_id)!);
+          await q.query('update evaluator_assignments set rubric_position = $2 where id = $1', [c.id, wanted.get(c.day_id)]);
           updated++;
         }
       }
-      for (const [dayId, versionId] of wanted) {
+      for (const [dayId, position] of wanted) {
         if (current.some((c) => c.day_id === dayId)) continue;
-        if (!(await q.one('select 1 from event_days where id = $1', [dayId]))) throw badRequest('Dia inválido.');
-        if (!(await q.one('select 1 from rubric_versions where id = $1', [versionId]))) throw badRequest('Rubrica inválida.');
-        await q.query('insert into evaluator_assignments (day_id, user_id, group_id, rubric_version_id) values ($1, $2, null, $3)', [dayId, userId, versionId]);
+        await requireFicha(q, dayId, position);
+        await q.query('insert into evaluator_assignments (day_id, user_id, group_id, rubric_position) values ($1, $2, null, $3)', [dayId, userId, position]);
         added++;
       }
       await audit(q, admin.id, 'user.days_updated', 'user', userId, { days: body.days, added, updated, removed });
@@ -424,11 +492,11 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---------- Bancas (eventos) ----------
   app.get('/events', async (req) => {
     requireAdmin(req);
-    const events = await db.query<any>('select *, (logo_data_url is not null) as has_logo_flag from events order by created_at desc');
+    const events = await db.query<any>('select *, (logo_data_url is not null) as has_logo_flag from events where deleted_at is null order by created_at desc');
     const days = await db.query<any>(
-      `select d.*, (select a.rubric_version_id from evaluator_assignments a
-                     where a.day_id = d.id and a.user_id = d.primary_user_id and a.group_id is null) as primary_rubric_version_id
-         from event_days d order by d.date, d.start_time`,
+      `select d.*, (select a.rubric_position from evaluator_assignments a
+                     where a.day_id = d.id and a.user_id = d.primary_user_id and a.group_id is null) as primary_rubric_position
+         from event_days d where d.deleted_at is null order by d.date, d.start_time`,
     );
     const breaks = await db.query<any>('select * from breaks order by start_time');
     return {
@@ -446,6 +514,8 @@ export async function adminRoutes(app: FastifyInstance) {
         publicDisplay: e.public_display,
         warnPct: e.warn_pct,
         dangerPct: e.danger_pct,
+        stageAlertBeforeSeconds: e.stage_alert_before_seconds,
+        stageAlertAfterSeconds: e.stage_alert_after_seconds,
         editAfterSubmit: e.edit_after_submit,
         votePrivacy: e.vote_privacy,
         institutionDetail: e.institution_detail,
@@ -469,7 +539,7 @@ export async function adminRoutes(app: FastifyInstance) {
             gapMinutes: d.gap_minutes,
             defaultProfileId: d.default_profile_id,
             primaryUserId: d.primary_user_id,
-            primaryRubricVersionId: d.primary_rubric_version_id,
+            primaryRubricPosition: d.primary_rubric_position,
             breaks: breaks.filter((b) => b.day_id === d.id).map((b) => ({ id: b.id, label: b.label, start: b.start_time, end: b.end_time })),
           })),
       })),
@@ -501,6 +571,8 @@ export async function adminRoutes(app: FastifyInstance) {
       b.aggregation,
       b.verdictOptions,
       b.rubricTypeId,
+      b.stageAlertBeforeSeconds,
+      b.stageAlertAfterSeconds,
     ];
   };
 
@@ -511,8 +583,9 @@ export async function adminRoutes(app: FastifyInstance) {
       const row = await q.one<{ id: number }>(
         `insert into events (name, institution, period, timezone, report_header, report_subtitle, report_footer, report_color,
                              show_student_names, public_display, warn_pct, danger_pct, edit_after_submit, vote_privacy,
-                             institution_detail, report_purpose, report_guidance, school_location, location_format, aggregation, verdict_options, rubric_type_id)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) returning id`,
+                             institution_detail, report_purpose, report_guidance, school_location, location_format, aggregation, verdict_options, rubric_type_id,
+                             stage_alert_before_seconds, stage_alert_after_seconds)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) returning id`,
         eventParams(body),
       );
       await audit(q, admin.id, 'event.created', 'event', row!.id, { name: body.name });
@@ -529,7 +602,7 @@ export async function adminRoutes(app: FastifyInstance) {
         `update events set name=$2, institution=$3, period=$4, timezone=$5, report_header=$6, report_subtitle=$7, report_footer=$8,
                 report_color=$9, show_student_names=$10, public_display=$11, warn_pct=$12, danger_pct=$13, edit_after_submit=$14, vote_privacy=$15,
                 institution_detail=$16, report_purpose=$17, report_guidance=$18, school_location=$19, location_format=$20, aggregation=$21,
-                verdict_options=$22, rubric_type_id=$23
+                verdict_options=$22, rubric_type_id=$23, stage_alert_before_seconds=$24, stage_alert_after_seconds=$25
           where id = $1 returning id`,
         [id, ...eventParams(body)],
       );
@@ -548,7 +621,8 @@ export async function adminRoutes(app: FastifyInstance) {
         [id],
       );
       if (started) throw conflict('A banca já possui apresentações iniciadas e não pode ser excluída.', 'IN_USE');
-      await q.query('delete from events where id = $1', [id]);
+      if (!(await softDelete(q, 'event', id, admin.id))) throw notFound();
+      await q.query('update event_days set display_active_at = null, display_activated_by = null where event_id = $1', [id]);
       await audit(q, admin.id, 'event.deleted', 'event', id);
       return { ok: true };
     });
@@ -562,7 +636,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const errors = validateDayTimes(body.startTime, body.endTime, body.breaks);
     if (errors.length) throw badRequest(errors.join(' '), errors);
     return db.tx(async (q) => {
-      if (!(await q.one('select 1 from events where id = $1', [eventId]))) throw notFound('Banca não encontrada.');
+      if (!(await q.one('select 1 from events where id = $1 and deleted_at is null', [eventId]))) throw notFound('Banca não encontrada.');
       const row = await q.one<{ id: number }>(
         `insert into event_days (event_id, label, date, start_time, end_time, room, gap_minutes, default_profile_id)
          values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
@@ -598,7 +672,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const id = paramId(req);
     return db.tx(async (q) => {
       if (await dayHasStarted(q, id)) throw conflict('Este dia já possui apresentações iniciadas e não pode ser excluído.', 'IN_USE');
-      await q.query('delete from event_days where id = $1', [id]);
+      if (!(await softDelete(q, 'day', id, admin.id))) throw notFound();
+      // O dia sai de cena: os grupos voltam para "não distribuídos" e a tela do telão é desativada.
+      await q.query('delete from evaluator_assignments where day_id = $1', [id]);
+      await q.query('delete from schedule_entries where day_id = $1', [id]);
+      await q.query('update event_days set display_active_at = null, display_activated_by = null, current_entry_id = null where id = $1', [id]);
       await audit(q, admin.id, 'day.deleted', 'event_day', id);
       return { ok: true };
     });
@@ -613,28 +691,28 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = requireAdmin(req);
     const id = paramId(req);
     const body = z
-      .object({ userId: z.number().int().positive().nullable(), rubricVersionId: z.number().int().positive().nullable().optional(), reason: optText(500) })
+      .object({ userId: z.number().int().positive().nullable(), rubricPosition: z.number().int().positive().nullable().optional(), reason: optText(500) })
       .parse(req.body);
     return db.tx(async (q) => {
       const day = await q.one<any>('select primary_user_id from event_days where id = $1 for update', [id]);
       if (!day) throw notFound();
       let assignment: { id: number; created: boolean } | null = null;
       if (body.userId !== null) {
-        const u = await q.one<any>('select role, active from users where id = $1', [body.userId]);
+        const u = await q.one<any>('select role, active from users where id = $1 and deleted_at is null', [body.userId]);
         if (!u || u.role !== 'teacher' || !u.active) throw badRequest('O professor primário deve ser um docente ativo.');
-        if (!body.rubricVersionId) throw badRequest('Escolha a rubrica com que o professor primário vai avaliar.');
-        if (!(await q.one('select 1 from rubric_versions where id = $1', [body.rubricVersionId]))) throw badRequest('Rubrica inválida.');
+        if (!body.rubricPosition) throw badRequest('Escolha a ficha que o professor primário vai preencher.');
+        await requireFicha(q, id, body.rubricPosition);
         const existing = await q.one<{ id: number }>('select id from evaluator_assignments where day_id = $1 and user_id = $2 and group_id is null', [
           id,
           body.userId,
         ]);
         if (existing) {
-          await q.query('update evaluator_assignments set rubric_version_id = $2 where id = $1', [existing.id, body.rubricVersionId]);
+          await q.query('update evaluator_assignments set rubric_position = $2 where id = $1', [existing.id, body.rubricPosition]);
           assignment = { id: existing.id, created: false };
         } else {
           const row = await q.one<{ id: number }>(
-            'insert into evaluator_assignments (day_id, user_id, group_id, rubric_version_id) values ($1, $2, null, $3) returning id',
-            [id, body.userId, body.rubricVersionId],
+            'insert into evaluator_assignments (day_id, user_id, group_id, rubric_position) values ($1, $2, null, $3) returning id',
+            [id, body.userId, body.rubricPosition],
           );
           assignment = { id: row!.id, created: true };
         }
@@ -643,7 +721,7 @@ export async function adminRoutes(app: FastifyInstance) {
       await audit(q, admin.id, 'day.primary_changed', 'event_day', id, {
         from: day.primary_user_id,
         to: body.userId,
-        rubricVersionId: body.rubricVersionId ?? null,
+        rubricPosition: body.rubricPosition ?? null,
         assignment,
         reason: body.reason,
       });
@@ -655,16 +733,20 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---------- Perfis de tempo ----------
   app.get('/profiles', async (req) => {
     requireUser(req);
-    const profiles = await db.query<any>('select * from time_profiles order by name');
     const stages = await db.query<any>('select * from time_stages order by profile_id, position');
     const usage = await db.query<any>(
-      `select p.id, (select count(*)::int from event_days d where d.default_profile_id = p.id) +
+      `select p.id, (select count(*)::int from event_days d where d.default_profile_id = p.id and d.deleted_at is null) +
                     (select count(*)::int from schedule_entries e where e.time_profile_id = p.id) as n
          from time_profiles p`,
     );
+    // Perfis na lixeira ainda vinculados a dias/grupos vêm marcados como excluídos: a tela de perfis os omite (ficam só na Lixeira),
+    // mas os vínculos os exibem taxados.
+    const profiles = (await db.query<any>('select * from time_profiles order by name')).filter(
+      (p) => !p.deleted_at || (usage.find((u) => u.id === p.id)?.n ?? 0) > 0,
+    );
     return {
       profiles: profiles.map((p) => {
-        const st = stages.filter((s) => s.profile_id === p.id).map((s) => ({ name: s.name, durationSeconds: s.duration_seconds, color: s.color }));
+        const st = stages.filter((s) => s.profile_id === p.id).map(stageFromRow);
         return {
           id: p.id,
           name: p.name,
@@ -672,6 +754,7 @@ export async function adminRoutes(app: FastifyInstance) {
           stages: st,
           totalSeconds: st.reduce((a, s) => a + s.durationSeconds, 0),
           usage: usage.find((u) => u.id === p.id)?.n ?? 0,
+          deleted: !!p.deleted_at,
         };
       }),
     };
@@ -695,8 +778,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const id = paramId(req);
     const body = profileSchema.parse(req.body);
     return db.tx(async (q) => {
-      const before = await q.query('select name, duration_seconds, color from time_stages where profile_id = $1 order by position', [id]);
-      const r = await q.query('update time_profiles set name = $2, active = $3 where id = $1 returning id', [id, body.name, body.active]);
+      const before = await q.query('select name, duration_seconds, color, is_pause, alert from time_stages where profile_id = $1 order by position', [id]);
+      const r = await q.query('update time_profiles set name = $2, active = $3 where id = $1 and deleted_at is null returning id', [id, body.name, body.active]);
       if (!r.length) throw notFound();
       // Sessões já iniciadas usam cópia própria das etapas: a edição não as altera.
       await replaceStages(q, id, body.stages);
@@ -709,11 +792,12 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = requireAdmin(req);
     const id = paramId(req);
     return db.tx(async (q) => {
-      const p = await q.one<any>('select * from time_profiles where id = $1', [id]);
+      const p = await q.one<any>('select * from time_profiles where id = $1 and deleted_at is null', [id]);
       if (!p) throw notFound();
       const row = await q.one<{ id: number }>('insert into time_profiles (name, active) values ($1, $2) returning id', [`${p.name} (cópia)`, p.active]);
       await q.query(
-        'insert into time_stages (profile_id, position, name, duration_seconds, color) select $2, position, name, duration_seconds, color from time_stages where profile_id = $1',
+        `insert into time_stages (profile_id, position, name, duration_seconds, color, is_pause, alert)
+         select $2, position, name, duration_seconds, color, is_pause, alert from time_stages where profile_id = $1`,
         [id, row!.id],
       );
       await audit(q, admin.id, 'profile.duplicated', 'time_profile', row!.id, { from: id });
@@ -725,12 +809,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = requireAdmin(req);
     const id = paramId(req);
     return db.tx(async (q) => {
-      const used = await q.one(
-        'select 1 from event_days where default_profile_id = $1 union all select 1 from schedule_entries where time_profile_id = $1 limit 1',
-        [id],
-      );
-      if (used) throw conflict('Perfil em uso por dia ou grupo. Inative-o em vez de excluir.', 'IN_USE');
-      await q.query('delete from time_profiles where id = $1', [id]);
+      // Em uso por dias ou grupos: vai para a lixeira e continua aparecendo taxado onde estava vinculado.
+      if (!(await softDelete(q, 'profile', id, admin.id))) throw notFound();
       await audit(q, admin.id, 'profile.deleted', 'time_profile', id);
       return { ok: true };
     });
@@ -743,14 +823,15 @@ export async function adminRoutes(app: FastifyInstance) {
     const groups = await db.query<any>(
       `select g.*, e.id as entry_id, e.day_id, e.position, e.time_profile_id, e.started_at
          from groups g left join schedule_entries e on e.group_id = g.id
-        where g.event_id = $1 order by g.code`,
+        where g.event_id = $1 and g.deleted_at is null order by g.code`,
       [eventId],
     );
     const students = await db.query<any>(
       `select gs.group_id, s.name from group_students gs join students s on s.id = gs.student_id
-        where gs.group_id in (select id from groups where event_id = $1) order by gs.position`,
+        where gs.group_id in (select id from groups where event_id = $1 and deleted_at is null) order by gs.position`,
       [eventId],
     );
+    const files = await groupFilesFor(db, groups.map((g) => g.id));
     return {
       groups: groups.map((g) => ({
         id: g.id,
@@ -763,6 +844,9 @@ export async function adminRoutes(app: FastifyInstance) {
         projectUrl: g.project_url,
         pdfUrl: g.pdf_url,
         slidesUrl: g.slides_url,
+        githubUrl: g.github_url,
+        slidesFile: files.get(g.id)?.slides ?? null,
+        articleFile: files.get(g.id)?.article ?? null,
         color: g.color,
         rubricTypeId: g.rubric_type_id,
         students: students.filter((s) => s.group_id === g.id).map((s) => s.name),
@@ -787,6 +871,7 @@ export async function adminRoutes(app: FastifyInstance) {
     b.slidesUrl,
     color,
     b.rubricTypeId,
+    b.githubUrl,
   ];
 
   app.post('/events/:id/groups', async (req) => {
@@ -795,11 +880,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const body = groupSchema.parse(req.body);
     return db.tx(async (q) => {
       // Cor de identificação gerada automaticamente (a menos usada na banca), se não informada.
-      const used = await q.query<{ color: string }>('select color from groups where event_id = $1', [eventId]);
+      const used = await q.query<{ color: string }>('select color from groups where event_id = $1 and deleted_at is null', [eventId]);
       const color = body.color ?? nextGroupColor(used.map((u) => u.color));
       const row = await q.one<{ id: number }>(
-        `insert into groups (event_id, code, class_name, title, description, advisor, advisors, project_url, pdf_url, slides_url, color, rubric_type_id)
-         values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12) returning id`,
+        `insert into groups (event_id, code, class_name, title, description, advisor, advisors, project_url, pdf_url, slides_url, color, rubric_type_id, github_url)
+         values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12,$13) returning id`,
         [eventId, ...groupParams(body, color)],
       );
       await replaceStudents(q, row!.id, body.students);
@@ -816,11 +901,11 @@ export async function adminRoutes(app: FastifyInstance) {
       if (await q.one('select 1 from evaluation_closures where group_id = $1 and reopened_at is null', [id])) {
         throw conflict('Grupo com avaliação fechada: reabra antes de alterar os dados.', 'CLOSED');
       }
-      const cur = await q.one<{ color: string }>('select color from groups where id = $1', [id]);
+      const cur = await q.one<{ color: string }>('select color from groups where id = $1 and deleted_at is null', [id]);
       if (!cur) throw notFound();
       await q.query(
         `update groups set code=$2, class_name=$3, title=$4, description=$5, advisor=$6, advisors=$7::jsonb, project_url=$8, pdf_url=$9,
-                slides_url=$10, color=$11, rubric_type_id=$12
+                slides_url=$10, color=$11, rubric_type_id=$12, github_url=$13
           where id = $1`,
         [id, ...groupParams(body, body.color ?? cur.color)],
       );
@@ -837,9 +922,64 @@ export async function adminRoutes(app: FastifyInstance) {
       if (await q.one('select 1 from schedule_entries where group_id = $1 and started_at is not null', [id])) {
         throw conflict('O grupo já se apresentou; não pode ser excluído (histórico preservado).', 'IN_USE');
       }
-      await replaceStudents(q, id, []);
-      await q.query('delete from groups where id = $1', [id]);
+      if (!(await softDelete(q, 'group', id, admin.id))) throw notFound();
+      // O grupo sai do cronograma e das atribuições específicas (o cadastro e os alunos ficam na lixeira).
+      await q.query('delete from evaluator_assignments where group_id = $1', [id]);
+      await q.query('delete from schedule_entries where group_id = $1', [id]);
       await audit(q, admin.id, 'group.deleted', 'group', id);
+      return { ok: true };
+    });
+  });
+
+  // Arquivos do grupo (slides e artigo). O corpo é o próprio arquivo; o nome vai no cabeçalho x-filename.
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: GROUP_FILE_BODY_LIMIT }, (_req, body, done) => done(null, body));
+
+  const assertGroupEditable = async (q: Queryable, groupId: number) => {
+    if (!(await q.one('select 1 from groups where id = $1 and deleted_at is null', [groupId]))) throw notFound('Grupo não encontrado.');
+    if (await q.one('select 1 from evaluation_closures where group_id = $1 and reopened_at is null', [groupId])) {
+      throw conflict('Grupo com avaliação fechada: reabra antes de alterar os materiais.', 'CLOSED');
+    }
+  };
+
+  app.put('/groups/:id/files/:kind', { bodyLimit: GROUP_FILE_BODY_LIMIT }, async (req) => {
+    const admin = requireAdmin(req);
+    const groupId = paramId(req);
+    const kind = parseFileKind((req.params as any).kind);
+    const data = req.body;
+    if (!Buffer.isBuffer(data)) throw badRequest('Envie o arquivo com Content-Type: application/octet-stream.');
+    let rawName = String(req.headers['x-filename'] ?? '');
+    try {
+      rawName = decodeURIComponent(rawName);
+    } catch {
+      throw badRequest('Nome do arquivo inválido.');
+    }
+    const { name, mime } = validateGroupFile(kind, rawName, data);
+    return db.tx(async (q) => {
+      await assertGroupEditable(q, groupId);
+      const row = await q.one<any>(
+        `insert into group_files (group_id, kind, filename, mime, size, data, uploaded_by) values ($1, $2, $3, $4, $5, $6, $7)
+         on conflict (group_id, kind) do update
+           set filename = excluded.filename, mime = excluded.mime, size = excluded.size, data = excluded.data,
+               uploaded_by = excluded.uploaded_by, uploaded_at = now(), deleted_at = null, deleted_by = null, purged_at = null
+         returning group_id, kind, filename, mime, size, uploaded_at`,
+        [groupId, kind, name, mime, data.length, data, admin.id],
+      );
+      await audit(q, admin.id, 'group.file_uploaded', 'group', groupId, { kind, name, size: data.length });
+      return { file: uploadedFile(row) };
+    });
+  });
+
+  app.delete('/groups/:id/files/:kind', async (req) => {
+    const admin = requireAdmin(req);
+    const groupId = paramId(req);
+    const kind = parseFileKind((req.params as any).kind);
+    return db.tx(async (q) => {
+      await assertGroupEditable(q, groupId);
+      const r = await q.query(
+        'update group_files set deleted_at = now(), deleted_by = $3 where group_id = $1 and kind = $2 and deleted_at is null returning group_id',
+        [groupId, kind, admin.id],
+      );
+      if (r.length) await audit(q, admin.id, 'group.file_removed', 'group', groupId, { kind });
       return { ok: true };
     });
   });
@@ -854,11 +994,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const body = z.object({ dayId: z.number().int().positive().nullable(), position: z.number().int().positive().optional() }).parse(req.body);
     const touched = new Set<number>();
     await db.tx(async (q) => {
-      const g = await q.one<{ event_id: number }>('select event_id from groups where id = $1', [groupId]);
+      const g = await q.one<{ event_id: number }>('select event_id from groups where id = $1 and deleted_at is null', [groupId]);
       if (!g) throw notFound('Grupo não encontrado.');
       const e = await q.one<any>('select * from schedule_entries where group_id = $1 for update', [groupId]);
       if (body.dayId !== null) {
-        const day = await q.one<{ event_id: number }>('select event_id from event_days where id = $1 for update', [body.dayId]);
+        const day = await q.one<{ event_id: number }>('select event_id from event_days where id = $1 and deleted_at is null for update', [body.dayId]);
         if (!day) throw notFound('Dia não encontrado.');
         if (day.event_id !== g.event_id) throw badRequest('O dia pertence a outra banca.');
       }
@@ -933,7 +1073,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = requireAdmin(req);
     const id = paramId(req);
     const body = typeSchema.parse(req.body);
-    const r = await db.query('update rubric_types set name = $2, description = $3 where id = $1 returning id', [id, body.name, body.description]);
+    const r = await db.query('update rubric_types set name = $2, description = $3 where id = $1 and deleted_at is null returning id', [id, body.name, body.description]);
     if (!r.length) throw notFound();
     await audit(db, admin.id, 'rubric_type.updated', 'rubric_type', id, body);
     return { ok: true };
@@ -943,15 +1083,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = requireAdmin(req);
     const id = paramId(req);
     return db.tx(async (q) => {
-      const use = await q.one<{ ev: number; gr: number }>(
-        'select (select count(*)::int from events where rubric_type_id = $1) as ev, (select count(*)::int from groups where rubric_type_id = $1) as gr',
-        [id],
-      );
-      if (use!.ev || use!.gr) {
-        throw conflict(`Tipo em uso por ${use!.ev} banca(s) e ${use!.gr} grupo(s): troque o tipo deles antes de excluir.`, 'IN_USE');
-      }
-      // As rubricas do tipo continuam cadastradas, apenas sem tipo.
-      await q.query('delete from rubric_types where id = $1', [id]);
+      // Em uso por bancas ou grupos: vai para a lixeira e continua aparecendo taxado onde estava vinculado.
+      if (!(await softDelete(q, 'rubric_type', id, admin.id))) throw notFound();
       await audit(q, admin.id, 'rubric_type.deleted', 'rubric_type', id);
       return { ok: true };
     });
@@ -969,8 +1102,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const dayId = paramId(req);
     const body = z.object({ groupId: z.number().int().positive(), timeProfileId: z.number().int().positive().nullable().default(null) }).parse(req.body);
     return db.tx(async (q) => {
-      const day = await q.one<any>('select event_id from event_days where id = $1', [dayId]);
-      const group = await q.one<any>('select event_id from groups where id = $1', [body.groupId]);
+      const day = await q.one<any>('select event_id from event_days where id = $1 and deleted_at is null', [dayId]);
+      const group = await q.one<any>('select event_id from groups where id = $1 and deleted_at is null', [body.groupId]);
       if (!day || !group) throw notFound();
       if (day.event_id !== group.event_id) throw badRequest('O grupo pertence a outra banca.');
       const pos = await q.one<{ p: number }>('select coalesce(max(position), 0) + 1 as p from schedule_entries where day_id = $1', [dayId]);
@@ -1069,20 +1202,29 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---------- Rubricas (modelos e versões) ----------
   app.get('/rubrics', async (req) => {
     requireAdmin(req);
+    // Tipos na lixeira só vêm enquanto houver bancas, grupos ou rubricas vinculados: a tela de rubricas os omite (ficam só na Lixeira),
+    // mas os vínculos os exibem taxados.
     const types = await db.query<any>(
-      `select t.*, (select count(*)::int from events e where e.rubric_type_id = t.id) as events_using,
-              (select count(*)::int from groups g where g.rubric_type_id = t.id) as groups_using
-         from rubric_types t order by t.name`,
+      `select t.*, (select count(*)::int from events e where e.rubric_type_id = t.id and e.deleted_at is null) as events_using,
+              (select count(*)::int from groups g where g.rubric_type_id = t.id and g.deleted_at is null) as groups_using
+         from rubric_types t
+        where t.deleted_at is null
+           or exists (select 1 from events e where e.rubric_type_id = t.id and e.deleted_at is null)
+           or exists (select 1 from groups g where g.rubric_type_id = t.id and g.deleted_at is null)
+           or exists (select 1 from rubric_templates rt join rubric_versions rv on rv.template_id = rt.id
+                       where rt.type_id = t.id and rv.deleted_at is null)
+        order by t.name`,
     );
-    const templates = await db.query<any>('select * from rubric_templates order by type_position, name');
     const versions = await db.query<any>(
-      `select v.*, (select count(*)::int from evaluations ev where ev.rubric_version_id = v.id) as used,
-              (select count(*)::int from evaluator_assignments a where a.rubric_version_id = v.id) as assigned
-         from rubric_versions v order by v.template_id, v.version`,
+      `select v.*, (select count(*)::int from evaluations ev where ev.rubric_version_id = v.id) as used, ${ASSIGNED_SQL} as assigned
+         from rubric_versions v where v.deleted_at is null order by v.template_id, v.version`,
+    );
+    const templates = (await db.query<any>('select * from rubric_templates order by type_position, name')).filter((t) =>
+      versions.some((v) => v.template_id === t.id),
     );
     const criteria = await db.query<any>('select * from rubric_criteria order by version_id, position');
     return {
-      types: types.map((t) => ({ id: t.id, name: t.name, description: t.description, eventsUsing: t.events_using, groupsUsing: t.groups_using })),
+      types: types.map((t) => ({ id: t.id, name: t.name, description: t.description, eventsUsing: t.events_using, groupsUsing: t.groups_using, deleted: !!t.deleted_at })),
       templates: templates.map((t) => ({
         id: t.id,
         name: t.name,
@@ -1155,7 +1297,7 @@ export async function adminRoutes(app: FastifyInstance) {
         name: z.string().trim().min(1).max(200).optional(),
         description: optText(2000).optional(),
         typeId: z.number().int().positive().nullable().optional(),
-        typePosition: z.number().int().min(0).max(1000).optional(),
+        typePosition: z.number().int().min(1).max(1000).optional(),
       })
       .parse(req.body);
     const cur = await db.one<any>('select * from rubric_templates where id = $1', [id]);
@@ -1234,14 +1376,16 @@ export async function adminRoutes(app: FastifyInstance) {
     const id = paramId(req);
     return db.tx(async (q) => {
       if (await versionInUse(q, id)) throw conflict('Versão usada em avaliações: não pode ser excluída.', 'VERSION_IN_USE');
-      if (await q.one('select 1 from evaluator_assignments where rubric_version_id = $1', [id])) {
-        throw conflict('Versão atribuída a docentes: remova as atribuições antes.', 'IN_USE');
+      const v = await q.one<{ assigned: number; others: number }>(
+        `select ${ASSIGNED_SQL} as assigned,
+                (select count(*)::int from rubric_versions o where o.template_id = v.template_id and o.id <> v.id and o.deleted_at is null) as others
+           from rubric_versions v where v.id = $1 and v.deleted_at is null`,
+        [id],
+      );
+      if (v && v.assigned > 0 && v.others === 0) {
+        throw conflict('Única versão de uma ficha atribuída a docentes: remova as atribuições (ou crie outra versão) antes.', 'IN_USE');
       }
-      const v = await q.one<any>('select template_id from rubric_versions where id = $1', [id]);
-      await q.query('delete from rubric_versions where id = $1', [id]);
-      if (v && !(await q.one('select 1 from rubric_versions where template_id = $1', [v.template_id]))) {
-        await q.query('delete from rubric_templates where id = $1', [v.template_id]);
-      }
+      if (!(await softDelete(q, 'rubric_version', id, admin.id))) throw notFound();
       await audit(q, admin.id, 'rubric.version_deleted', 'rubric_version', id);
       return { ok: true };
     });
@@ -1253,11 +1397,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const eventId = paramId(req);
     const qs = await db.query<any>(
       `select q.*, (select count(*)::int from votes v where v.question_id = q.id) as votes
-         from vote_questions q where q.event_id = $1 order by q.position, q.id`,
+         from vote_questions q where q.event_id = $1 and q.deleted_at is null order by q.position, q.id`,
       [eventId],
     );
     const opts = await db.query<any>(
-      'select * from vote_options where question_id in (select id from vote_questions where event_id = $1) order by position',
+      'select * from vote_options where question_id in (select id from vote_questions where event_id = $1 and deleted_at is null) order by position',
       [eventId],
     );
     return {
@@ -1327,7 +1471,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (await q.one('select 1 from votes where question_id = $1 limit 1', [id])) {
         throw conflict('Já existem votos: desabilite a pergunta em vez de excluí-la.', 'HAS_VOTES');
       }
-      await q.query('delete from vote_questions where id = $1', [id]);
+      if (!(await softDelete(q, 'vote_question', id, admin.id))) throw notFound();
       await audit(q, admin.id, 'vote.question_deleted', 'vote_question', id);
       return { ok: true };
     });
@@ -1362,7 +1506,7 @@ export async function adminRoutes(app: FastifyInstance) {
     return db.tx(async (q) => {
       const versionIds = await installPiRubrics(q);
       if (body.eventId) {
-        if (!(await q.one('select 1 from events where id = $1', [body.eventId]))) throw notFound('Banca não encontrada.');
+        if (!(await q.one('select 1 from events where id = $1 and deleted_at is null', [body.eventId]))) throw notFound('Banca não encontrada.');
         await applyPiEventConfig(q, body.eventId);
       }
       await audit(q, admin.id, 'template.projeto_integrador_applied', 'event', body.eventId, { versionIds });
@@ -1380,16 +1524,16 @@ export async function adminRoutes(app: FastifyInstance) {
       const src = await q.one<any>('select event_id, primary_user_id from event_days where id = $1', [body.fromDayId]);
       const dst = await q.one<any>('select event_id from event_days where id = $1 for update', [dayId]);
       if (!src || !dst) throw notFound('Dia não encontrado.');
-      const rows = await q.query<any>('select user_id, rubric_version_id from evaluator_assignments where day_id = $1 and group_id is null', [body.fromDayId]);
+      const rows = await q.query<any>('select user_id, rubric_position from evaluator_assignments where day_id = $1 and group_id is null', [body.fromDayId]);
       let copied = 0;
       let updated = 0;
       for (const r of rows) {
         const ex = await q.one<{ id: number }>('select id from evaluator_assignments where day_id = $1 and user_id = $2 and group_id is null', [dayId, r.user_id]);
         if (ex) {
-          await q.query('update evaluator_assignments set rubric_version_id = $2 where id = $1', [ex.id, r.rubric_version_id]);
+          await q.query('update evaluator_assignments set rubric_position = $2 where id = $1', [ex.id, r.rubric_position]);
           updated++;
         } else {
-          await q.query('insert into evaluator_assignments (day_id, user_id, group_id, rubric_version_id) values ($1, $2, null, $3)', [dayId, r.user_id, r.rubric_version_id]);
+          await q.query('insert into evaluator_assignments (day_id, user_id, group_id, rubric_position) values ($1, $2, null, $3)', [dayId, r.user_id, r.rubric_position]);
           copied++;
         }
       }
@@ -1404,10 +1548,14 @@ export async function adminRoutes(app: FastifyInstance) {
     const dayId = paramId(req);
     return {
       assignments: await db.query(
-        `select a.id, a.user_id as "userId", u.name as "userName", a.group_id as "groupId", g.code as "groupCode",
-                a.rubric_version_id as "rubricVersionId", v.title as "rubricTitle", v.version as "rubricVersion"
+        `select a.id, a.user_id as "userId", u.name as "userName", (u.deleted_at is not null) as "userDeleted", a.group_id as "groupId", g.code as "groupCode",
+                a.rubric_position as "rubricPosition",
+                (select v.title from event_days d join events e on e.id = d.event_id
+                   join rubric_templates t on t.type_id = coalesce(g.rubric_type_id, e.rubric_type_id) and t.type_position = a.rubric_position
+                   join rubric_versions v on v.template_id = t.id and v.deleted_at is null
+                  where d.id = a.day_id order by t.id, v.version desc limit 1) as "rubricTitle"
            from evaluator_assignments a join users u on u.id = a.user_id
-           join rubric_versions v on v.id = a.rubric_version_id left join groups g on g.id = a.group_id
+           left join groups g on g.id = a.group_id
           where a.day_id = $1 order by u.name, g.code nulls first`,
         [dayId],
       ),
@@ -1418,12 +1566,12 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = requireAdmin(req);
     const dayId = paramId(req);
     const body = z
-      .object({ userId: z.number().int().positive(), rubricVersionId: z.number().int().positive(), groupId: z.number().int().positive().nullable().default(null) })
+      .object({ userId: z.number().int().positive(), rubricPosition: z.number().int().positive(), groupId: z.number().int().positive().nullable().default(null) })
       .parse(req.body);
     return db.tx(async (q) => {
-      const u = await q.one<any>('select role, active from users where id = $1', [body.userId]);
+      const u = await q.one<any>('select role, active from users where id = $1 and deleted_at is null', [body.userId]);
       if (!u || u.role !== 'teacher' || !u.active) throw badRequest('Somente docentes ativos podem ser avaliadores.');
-      if (!(await q.one('select 1 from rubric_versions where id = $1', [body.rubricVersionId]))) throw badRequest('Rubrica inválida.');
+      await requireFicha(q, dayId, body.rubricPosition, body.groupId);
       if (body.groupId && !(await q.one('select 1 from schedule_entries where group_id = $1 and day_id = $2', [body.groupId, dayId]))) {
         throw badRequest('O grupo não está no cronograma deste dia.');
       }
@@ -1435,13 +1583,13 @@ export async function adminRoutes(app: FastifyInstance) {
         ])
       ) {
         throw conflict(
-          body.groupId ? 'Este docente já tem atribuição para este grupo neste dia.' : 'Este docente já avalia todos os grupos deste dia (altere a rubrica na lista).',
+          body.groupId ? 'Este docente já tem atribuição para este grupo neste dia.' : 'Este docente já avalia todos os grupos deste dia (altere a ficha na lista).',
           'DUPLICATE',
         );
       }
       const row = await q.one<{ id: number }>(
-        'insert into evaluator_assignments (day_id, user_id, group_id, rubric_version_id) values ($1,$2,$3,$4) returning id',
-        [dayId, body.userId, body.groupId, body.rubricVersionId],
+        'insert into evaluator_assignments (day_id, user_id, group_id, rubric_position) values ($1,$2,$3,$4) returning id',
+        [dayId, body.userId, body.groupId, body.rubricPosition],
       );
       await audit(q, admin.id, 'assignment.created', 'event_day', dayId, body);
       return { id: row!.id };
@@ -1451,15 +1599,15 @@ export async function adminRoutes(app: FastifyInstance) {
   app.patch('/assignments/:id', async (req) => {
     const admin = requireAdmin(req);
     const id = paramId(req);
-    const body = z.object({ rubricVersionId: z.number().int().positive() }).parse(req.body);
+    const body = z.object({ rubricPosition: z.number().int().positive() }).parse(req.body);
     return db.tx(async (q) => {
       const a = await q.one<any>('select * from evaluator_assignments where id = $1', [id]);
       if (!a) throw notFound();
-      if (!(await q.one('select 1 from rubric_versions where id = $1', [body.rubricVersionId]))) throw badRequest('Rubrica inválida.');
-      await q.query('update evaluator_assignments set rubric_version_id = $2 where id = $1', [id, body.rubricVersionId]);
+      await requireFicha(q, a.day_id, body.rubricPosition, a.group_id);
+      await q.query('update evaluator_assignments set rubric_position = $2 where id = $1', [id, body.rubricPosition]);
       await audit(q, admin.id, 'assignment.updated', 'evaluator_assignment', id, {
         ...body,
-        from: a.rubric_version_id,
+        from: a.rubric_position,
         note: 'Fichas já abertas mantêm a versão original.',
       });
       return { ok: true };

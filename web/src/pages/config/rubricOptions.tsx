@@ -7,6 +7,7 @@ export interface RubricTypeRow {
   description: string | null;
   eventsUsing: number;
   groupsUsing: number;
+  deleted?: boolean;
 }
 
 export interface RubricsData {
@@ -25,48 +26,32 @@ export function useRubrics() {
   return useLoad(() => api.get<RubricsData>('/api/rubrics'), []);
 }
 
-export interface RubricGroup {
-  typeId: number | null;
+/** Ficha de um tipo de rubrica: a posição (1ª, 2ª…) que o docente preenche. */
+export interface Ficha {
+  position: number;
   label: string;
-  options: Array<{ id: number; label: string; latest: boolean }>;
 }
 
 /**
- * Versões de rubrica agrupadas por tipo, com o tipo indicado primeiro (o da banca).
- * Dentro do tipo, na ordem das fichas: "1. Nome — v2".
+ * Fichas de um tipo, na ordem: "1ª ficha — Avaliador - Conteúdo Técnico" (título da versão mais recente).
+ * A atribuição do docente guarda só a ficha; a rubrica vem sempre do tipo da banca (ou do grupo).
  */
-export function rubricGroups(data: RubricsData | null | undefined, firstTypeId?: number | null): RubricGroup[] {
-  if (!data) return [];
-  const byType = new Map<number | null, RubricGroup>();
-  const typeName = (id: number | null) => (id === null ? 'Sem tipo' : (data.types.find((t) => t.id === id)?.name ?? 'Tipo'));
-  const templates = [...data.templates].sort((a, b) => a.typePosition - b.typePosition || a.name.localeCompare(b.name, 'pt-BR'));
-  for (const t of templates) {
-    const g = byType.get(t.typeId) ?? { typeId: t.typeId, label: typeName(t.typeId), options: [] };
-    const last = t.versions[t.versions.length - 1];
-    for (const v of t.versions) {
-      g.options.push({
-        id: v.id,
-        label: `${t.typeId !== null ? `${t.typePosition}. ` : ''}${t.name}${t.versions.length > 1 ? ` — v${v.version}` : ''}`,
-        latest: v.id === last?.id,
-      });
-    }
-    byType.set(t.typeId, g);
-  }
-  const groups = [...byType.values()];
-  groups.sort((a, b) => {
-    const rank = (g: RubricGroup) => (g.typeId === (firstTypeId ?? -1) ? 0 : g.typeId === null ? 2 : 1);
-    return rank(a) - rank(b) || a.label.localeCompare(b.label, 'pt-BR');
-  });
-  if (firstTypeId) {
-    const first = groups[0];
-    if (first && first.typeId === firstTypeId) first.label = `${first.label} (tipo da banca)`;
-  }
-  return groups;
+export function fichasOf(data: RubricsData | null | undefined, typeId: number | null | undefined): Ficha[] {
+  if (!data || !typeId) return [];
+  return data.templates
+    .filter((t) => t.typeId === typeId && t.typePosition > 0 && t.versions.length > 0)
+    .sort((a, b) => a.typePosition - b.typePosition)
+    .map((t) => ({ position: t.typePosition, label: `${t.typePosition}ª ficha — ${t.versions[t.versions.length - 1]?.title || t.name}` }));
 }
 
-/** Seletor de rubrica agrupado por tipo. */
-export function RubricSelect({
-  groups,
+/** Nome da ficha (para exibição); `null` se a posição não existe no tipo. */
+export function fichaLabel(fichas: Ficha[], position: number | null | undefined): string | null {
+  return fichas.find((f) => f.position === position)?.label ?? null;
+}
+
+/** Seletor da ficha do tipo de rubrica; uma ficha atribuída que saiu do tipo continua visível, marcada. */
+export function FichaSelect({
+  fichas,
   value,
   onChange,
   id,
@@ -74,7 +59,7 @@ export function RubricSelect({
   disabled,
   placeholder = 'Selecione…',
 }: {
-  groups: RubricGroup[];
+  fichas: Ficha[];
   value: number | null;
   onChange: (v: number | null) => void;
   id?: string;
@@ -82,28 +67,16 @@ export function RubricSelect({
   disabled?: boolean;
   placeholder?: string;
 }) {
+  const missing = value !== null && !fichas.some((f) => f.position === value);
   return (
     <select id={id} aria-label={ariaLabel} value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
-      <option value="">{placeholder}</option>
-      {groups.map((g) => (
-        <optgroup key={g.typeId ?? 'none'} label={g.label}>
-          {g.options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </optgroup>
+      <option value="">{fichas.length ? placeholder : 'Banca sem tipo de rubrica'}</option>
+      {fichas.map((f) => (
+        <option key={f.position} value={f.position}>
+          {f.label}
+        </option>
       ))}
+      {missing && <option value={value}>{value}ª ficha (não existe no tipo)</option>}
     </select>
   );
-}
-
-/** Nome da rubrica (para exibição). */
-export function rubricLabel(groups: RubricGroup[], versionId: number | null | undefined): string | null {
-  if (!versionId) return null;
-  for (const g of groups) {
-    const o = g.options.find((x) => x.id === versionId);
-    if (o) return o.label;
-  }
-  return null;
 }

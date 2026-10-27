@@ -19,14 +19,23 @@ interface Readiness {
     date: string;
     room: string | null;
     checks: Check[];
-    progress: { total: number; started: number; finalized: number; running: boolean };
+    progress: {
+      total: number;
+      started: number;
+      finalized: number;
+      running: boolean;
+    };
     displayActive: boolean;
   }>;
   summary: { ok: number; warn: number; todo: number; ready: boolean };
 }
 
 const ICON = { ok: '✓', warn: '!', todo: '×' } as const;
-const STATUS_TEXT = { ok: 'Pronto', warn: 'Atenção', todo: 'Pendente' } as const;
+const STATUS_TEXT = {
+  ok: 'Pronto',
+  warn: 'Atenção',
+  todo: 'Pendente',
+} as const;
 
 const LABELS: Array<[string, string]> = [
   ['events', 'Bancas'],
@@ -83,9 +92,7 @@ function OverviewInner() {
   return (
     <div>
       <div className={`readiness-banner ${summary.ready ? 'is-ready' : 'is-pending'}`} role="status">
-        <strong>
-          {summary.ready ? '✓ Banca pronta para começar' : `${summary.todo} item(ns) pendente(s) antes de começar`}
-        </strong>
+        <strong>{summary.ready ? '✓ Banca pronta para começar' : `${summary.todo} item(ns) pendente(s) antes de começar`}</strong>
         <span>
           {summary.ok} pronto(s) · {summary.warn} de atenção · {summary.todo} pendente(s)
         </span>
@@ -128,7 +135,9 @@ function OverviewInner() {
                 <ActionButton
                   variant={d.displayActive ? 'ghost' : 'secondary'}
                   onAction={async () => {
-                    await api.post(`/api/days/${d.dayId}/display`, { active: !d.displayActive });
+                    await api.post(`/api/days/${d.dayId}/display`, {
+                      active: !d.displayActive,
+                    });
                     await r.reload(true);
                   }}
                 >

@@ -8,7 +8,7 @@ O sistema tem **três áreas principais**:
 
 | Área | Rota | Para quem |
 | --- | --- | --- |
-| **Cronômetro** | `/cronometro` | Telão/projeção minimalista, **sem seleção de dia ou de grupo**. Segue sozinho o dia que o professor primário ativou no telão. O grupo só aparece quando a apresentação é **iniciada**; sem dia ativo, ou na troca de grupo (próximo selecionado mas ainda não iniciado), mostra **"Aguardando"**. Fundo escuro, sem cabeçalho, com o relógio da etapa em destaque (a cor muda na reta final). A barra de ferramentas some após 3 s sem uso. Sem notas nem comentários; nomes dos alunos só se a banca permitir. |
+| **Cronômetro** | `/cronometro` | Telão/projeção minimalista, **sem seleção de dia ou de grupo**. Segue sozinho o dia que o professor primário ativou no telão. O grupo só aparece quando a apresentação é **iniciada**; sem dia ativo, ou na troca de grupo (próximo selecionado mas ainda não iniciado), mostra **"Aguardando"**. Fundo escuro, sem cabeçalho, com o relógio da etapa em destaque (a cor muda na reta final). Perfis de tempo aceitam **pausas** entre etapas (ex.: 30 s para preparar os alunos entre Demonstração e Perguntas), fora da numeração "Etapa X/Y", e etapas com **destaque de entrada**: o cronômetro pulsa nos segundos antes da troca e logo depois dela (padrão 15 s / 5 s, configuráveis na banca, aba Regras). A barra de ferramentas some após 3 s sem uso. Sem notas nem comentários; nomes dos alunos só se a banca permitir. |
 | **Professor** | `/professor` | Acesso individual do docente. O dia é escolhido em cartões que mostram o papel ("Conduz a banca" / "Avalia"). O **avaliador** que entra antes do primário (ou na troca de grupo) **aguarda com a lista do dia em ordem de apresentação**: #ordem na cor do grupo, hora programada, situação e o botão **Projeto**. Quando a apresentação começa, a tela passa sozinha para o grupo atual (com o tempo ao lado) e a ficha. O botão **Resumo e materiais** abre, em modal, o resumo, os orientadores, os alunos, o PDF (ler ou baixar), a apresentação (slides dentro do sistema) e o link do projeto. O primário tem ainda a condução da sessão e a conferência. |
 | **Configuração** | `/configuracao` | Administrador. Menu lateral **na ordem de preenchimento**: **Cadastros base** (1. Professores, 2. Perfis de tempo, 3. Tipos de rubrica), **Montagem da banca** (4. Banca e dias, 5. Grupos, 6. Distribuição nos dias, 7. Primário e avaliadores, 8. Votação opcional), além de Visão geral, Acompanhamento, Conferência e fechamento, Relatórios e Auditoria. Cada etapa termina com o botão "Próxima etapa". |
 
@@ -31,7 +31,7 @@ A documentação das rotas e dos eventos em tempo real está em [docs/API.md](do
 Banca (tipo de rubrica da banca)
  ├─ Dias (data, horário, sala, intervalos, perfil de tempo)
  │   ├─ Grupos, em ordem (#1, #2…), com hora prevista calculada
- │   └─ Professor primário + avaliadores (cada um com uma rubrica do tipo)
+ │   └─ Professor primário + avaliadores (cada um com uma ficha do tipo: 1ª, 2ª…)
  └─ Grupos (resumo, alunos, orientadores, materiais, cor; tipo de rubrica próprio, se precisar)
 Tipo de rubrica ── várias rubricas (fichas), em ordem: 1ª, 2ª, 3ª…
 ```
@@ -40,16 +40,16 @@ Tipo de rubrica ── várias rubricas (fichas), em ordem: 1ª, 2ª, 3ª…
 2. **Perfis de tempo** — etapas da apresentação (ex.: 10 + 5 + 5 min).
 3. **Tipos de rubrica** — cada tipo reúne as rubricas usadas juntas (ex.: "Projeto Integrador" com 4 fichas). Cria-se o tipo e, dentro dele, as rubricas; a ordem (↑ ↓) define a 1ª, 2ª… ficha. Rubricas podem ser movidas entre tipos. O modelo Projeto Integrador já vem como um tipo.
 4. **Banca e dias** — dados da banca e **o tipo de rubrica que ela usa**; os dias. O formulário da banca é dividido em abas (Dados gerais, Regras da avaliação, Documento PDF).
-5. **Grupos** — código, turma, título, **resumo**, alunos, **professores orientadores** (vários), **materiais** (link da apresentação, link do PDF, link de acesso ao projeto) e **cor de identificação**, gerada no cadastro (a menos usada na banca) e editável. O grupo pode usar outro tipo de rubrica.
+5. **Grupos** — código, turma, título, **resumo**, alunos, **professores orientadores** (vários), **materiais** (link da apresentação, link do PDF, link de acesso ao projeto, link do repositório no GitHub) e **cor de identificação**, gerada no cadastro (a menos usada na banca) e editável. O grupo pode usar outro tipo de rubrica.
 6. **Distribuição nos dias** — quadro com uma coluna por dia e a coluna "Sem dia": **arraste** cada grupo para o dia e a posição; a ordem (#) e a hora prevista se atualizam na hora. Sem mouse: "Mover para…" e as setas ↑ ↓. A aba "Horários e perfis do dia" mantém a visão detalhada (perfil por grupo, ordenar por número/turma/título).
-7. **Primário e avaliadores** — por dia: quem conduz e quem avalia, escolhendo a rubrica numa lista agrupada por tipo (o tipo da banca primeiro).
+7. **Primário e avaliadores** — por dia: quem conduz e quem avalia, escolhendo **qual ficha** do tipo de rubrica da banca cada um preenche. A rubrica não é escolhida de novo aqui: ela vem sempre do tipo (da banca ou do grupo), na versão mais recente.
 8. **Votação** (opcional).
 
-**Rubrica de um grupo com outro tipo:** o avaliador designado com a rubrica de posição N do tipo da banca recebe, nesse grupo, a rubrica de posição N do tipo do grupo (1ª ↔ 1ª, 2ª ↔ 2ª), na versão mais recente. Atribuições "somente este grupo" e rubricas sem tipo valem como foram feitas.
+**Onde a rubrica é definida (uma vez só):** a banca define o tipo de rubrica; o grupo pode usar outro tipo. A atribuição do professor guarda apenas a ficha (posição 1, 2, 3…). Em cada grupo, ele recebe a ficha dessa posição no tipo do grupo (ou da banca), na versão mais recente; fichas já abertas mantêm a versão com que foram abertas. Se a ficha não existir no tipo de algum grupo, o roteiro de preparação aponta. Rubricas sem tipo não podem ser atribuídas.
 
 **Cor do grupo:** aparece na borda do grupo em destaque e no selo **#ordem** da área do professor, na lista de espera, no quadro de distribuição e no cabeçalho do telão.
 
-**Materiais:** os links aceitos começam com `https://` (ou um caminho do próprio sistema, como `/demo/...`). Google Apresentações, Google Drive/Docs e Canva são convertidos para o endereço de incorporação; os demais abrem como estão. Se o site de origem bloquear a exibição dentro de outra página, o modal oferece "Abrir em nova aba". A banca de demonstração usa dois PDFs fictícios em `web/public/demo/`.
+**Materiais:** os links aceitos começam com `https://` (ou um caminho do próprio sistema, como `/demo/...`). Google Apresentações, Google Drive/Docs e Canva são convertidos para o endereço de incorporação; os demais abrem como estão. Se o site de origem bloquear a exibição dentro de outra página, o modal oferece "Abrir em nova aba". O **repositório no GitHub** aceita só endereços `https://github.com/…` e, no modal do professor, o botão "Abrir no GitHub" abre o repositório em outra aba. A banca de demonstração usa dois PDFs fictícios em `web/public/demo/`.
 
 ### Roteiro de preparação (Configuração › Visão geral)
 
@@ -62,7 +62,7 @@ Cada item pendente tem o botão **Resolver**, que abre a seção certa. O painel
 
 ## Rubrica da Banca do Projeto Integrador
 
-O instrumento "Rubrica de Avaliação da Banca do Projeto Integrador" já vem instalado. São 4 rubricas, uma por avaliador, cada uma com 5 critérios transcritos do documento original:
+O instrumento "Rubrica de Avaliação da Banca do Projeto Integrador" já vem instalado em todo banco: a instalação roda logo após as migrações (no início do servidor, no `npm run db:migrate` e nos testes), em qualquer ambiente (DESENVOLVIMENTO, TESTE, PRODUCAO; PGlite ou PostgreSQL). É idempotente e, se o tipo ou uma das rubricas for para a lixeira, volta a existir completo na inicialização seguinte. São 4 rubricas, uma por avaliador, cada uma com 5 critérios transcritos do documento original:
 
 | Avaliador | Dimensão | Pontuação |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ O instrumento "Rubrica de Avaliação da Banca do Projeto Integrador" já vem in
 - **Escala:** de 0 a 5, com rótulos por nível (Não evidenciado, Inicial, Parcial, Adequado, Consistente, Plenamente desenvolvido). Na ficha, a nota é escolhida por botões de nível.
 - **Totais:** o subtotal de cada avaliador é a soma dos pontos (até 25), e o **total da banca é a soma dos subtotais (até 100)**.
 - **Parecer da banca:** quatro opções (plenamente desenvolvido, desenvolvido, em desenvolvimento, necessita retomada), mais pontos fortes, prioridades de melhoria e orientações finais. O parecer é registrado na conferência e é obrigatório para fechar.
-- **Como usar em uma banca:** em **Configuração → Banca e dias → Modelos prontos**, clique em **Aplicar modelo Projeto Integrador**. O botão instala o tipo de rubrica "Projeto Integrador" (as 4 fichas), vincula-o à banca e configura a soma, o parecer e os textos do documento. Depois, em **Primário e avaliadores**, vincule cada professor à rubrica da sua dimensão, em cada dia.
+- **Como usar em uma banca:** em **Configuração → Banca e dias → Modelos prontos**, clique em **Aplicar modelo Projeto Integrador**. O botão instala o tipo de rubrica "Projeto Integrador" (as 4 fichas), vincula-o à banca e configura a soma, o parecer e os textos do documento. Depois, em **Primário e avaliadores**, indique a ficha (dimensão) de cada professor, em cada dia.
 - **Demonstração:** a "Banca do Projeto Integrador — DEMONSTRAÇÃO" usa dados fictícios e tem dois dias com escalas diferentes.
 
 ### Escala de professores por dia
@@ -82,27 +82,35 @@ O instrumento "Rubrica de Avaliação da Banca do Projeto Integrador" já vem in
 Cada dia de banca tem sua própria escala. O mesmo professor pode participar de um dia, de vários ou de nenhum, e pode usar rubricas diferentes em cada dia. Há três formas de montar a escala:
 
 - **Por dia** (Configuração → 7. Primário e avaliadores): o primário e a tabela de avaliadores do dia, inclusive com atribuições a grupos específicos.
-- **No cadastro do professor** (Configuração → 1. Professores → Editar), opcional: marque os dias em que ele avalia e a rubrica de cada dia. A tabela de contas mostra os dias de cada professor.
+- **No cadastro do professor** (Configuração → 1. Professores → Editar), opcional: marque os dias em que ele avalia e a ficha de cada dia (do tipo de rubrica daquela banca). São os mesmos dados da etapa 7, vistos pelo professor. A tabela de contas mostra os dias de cada professor.
 - **Copiar escala de outro dia**, como ponto de partida; depois ajuste o dia livremente.
 
 Um professor não pode ser removido de um dia em que já tem fichas (registre a dispensa no fechamento) nem de um dia em que é o primário (troque o primário antes).
 
 ### PDF no formato do instrumento, preenchido
 
-O PDF de cada projeto segue o documento original e sai preenchido:
+O PDF de cada projeto reproduz o documento original (folha Carta, mesmas tabelas, cores, linhas pautadas, campos de assinatura e rodapé "Rubrica de Avaliação da Banca do Projeto Integrador | Página N") e sai preenchido. É emitido por grupo depois do fechamento (Conferência e fechamento, ou Configuração › Relatórios), e o lote do dia junta os grupos, cada um com a própria numeração:
 
-1. **Capa:** título, subtítulo, Grupo, Turma, Título, Data, Horário e Local; finalidade da banca, escala de avaliação, composição da banca e orientação.
-2. **Uma página por avaliador:** responsabilidade, critérios com os pontos, subtotal "x / 25", devolutiva e nome do avaliador, com a data do envio eletrônico.
-3. **Registro consolidado:** tabela dos avaliadores, **TOTAL DA BANCA x / 100**, parecer marcado com "(X)", pontos fortes, prioridades, orientações e campos de assinatura.
-4. **Informações complementares:** votação e exceções (quando houver), método de cálculo e dados do fechamento.
+1. **Capa** (sem rodapé, como no original): título, subtítulo, Grupo, Turma, Título do projeto, Data, Horário e Local; finalidade da banca, escala de avaliação, composição da banca e orientação.
+2. **Uma página por avaliador:** responsabilidade, faixa Grupo/Turma/Projeto, critérios com os pontos, subtotal "x / 25", devolutiva escrita sobre as 16 linhas pautadas, nome do avaliador e linha de assinatura (com a data do envio eletrônico, em letra miúda).
+3. **Registro consolidado:** tabela dos avaliadores, **TOTAL DA BANCA x / 100**, parecer marcado com "( X )", pontos fortes, prioridades e orientações sobre as linhas pautadas, e linhas de assinatura dos avaliadores (com o nome de cada um embaixo). Uma linha miúda registra a versão do fechamento.
+4. **Informações complementares**, que não existem no instrumento e só aparecem quando há votação, exceções ou cálculo por média.
 
-O logotipo institucional (PNG ou JPEG) é enviado em "Editar banca". Por questão de marca, o sistema não inclui nenhum logotipo por padrão.
+O logotipo da banca (PNG ou JPEG) é configurado em "Editar banca". O modelo Projeto Integrador já aplica o logotipo do próprio instrumento; o administrador pode trocá-lo ou removê-lo, e o sistema não o recoloca. Bancas que já usavam o modelo recebem uma única vez o logotipo, a cor (`#005ca9`) e o texto da orientação iguais aos do original.
 
 ### Local impresso (sala + local da escola)
 
 Em **Editar banca → Local impresso**, defina o **Local da escola** e o **Modelo de escrita do Local** com os marcadores `{sala}` e `{escola}`, por exemplo `{sala} — {escola}` ou `{escola}, {sala}`. A tela mostra uma pré-visualização. A sala vem do cadastro de cada dia, e o resultado sai no campo "Local" do PDF. Se um dos dois estiver vazio, sai apenas o outro.
 
 ---
+
+### Lixeira (exclusão lógica)
+
+Toda exclusão feita pelo administrador (bancas, dias, perfis de tempo, grupos, arquivos de grupo, tipos e versões de rubrica, perguntas de votação e contas de usuário/professores) é um
+`UPDATE` (`deleted_at`) e o item vai para **Configuração › Sistema › Lixeira**, onde pode ser **restaurado**. *Excluir definitivamente* ou *Limpar lixeira*
+também é um `UPDATE` (`purged_at`): o item some da plataforma e não pode mais ser restaurado. Se um item excluído ainda estiver vinculado a outro dado
+(ex.: perfil de tempo de um dia), ele continua aparecendo **taxado e em vermelho**. Excluir um dia ou grupo remove seus agendamentos e escalas (não voltam na
+restauração). Entradas do cronograma, escalas de avaliadores e alunos não passam pela lixeira.
 
 ## Stack e motivos
 
@@ -113,7 +121,7 @@ Todas as versões estão fixadas (sem `^`) nos `package.json`. Após a instalaç
 | Runtime | Node.js ≥ 20.19 (testado em **24.21.0**) | Disponível no ambiente. |
 | Backend | **Fastify 5.12.5** + `@fastify/websocket 11.3.4`, `@fastify/cookie 11.1.3`, `@fastify/static 10.1.6` | Rápido e tipado, com WebSocket nativo. As versões foram atualizadas para corrigir CVEs apontadas pelo `npm audit`. |
 | Validação | **Zod 3.25.76** | Validação estruturada de toda entrada. |
-| Banco | **PostgreSQL** via `pg 8.16.3` quando `DATABASE_URL` está definido. Sem ele, usa **PGlite 0.3.14** (PostgreSQL compilado para WASM) | O ambiente de desenvolvimento não tinha PostgreSQL instalado nem Docker ativo. O PGlite roda o motor PostgreSQL real com o mesmo SQL e as mesmas restrições, índices parciais e transações. Ver a seção "Limitações honestas". |
+| Banco | **PostgreSQL** via `pg 8.16.3` quando `DATABASE_URL_<AMBIENTE>` está definido. Sem ele, usa **PGlite 0.3.14** (PostgreSQL compilado para WASM) | O ambiente de desenvolvimento não tinha PostgreSQL instalado nem Docker ativo. O PGlite roda o motor PostgreSQL real com o mesmo SQL e as mesmas restrições, índices parciais e transações. Ver a seção "Limitações honestas". |
 | PDF | **pdfkit 0.17.2**, gerado no servidor | Sem navegador headless; paginação controlada. |
 | Senhas | `crypto.scrypt` nativo do Node (N=16384, sal aleatório) | Sem dependência nativa extra. |
 | Execução TS | **tsx 4.23.15** | Executa TypeScript direto (dev e produção); o `tsc --noEmit` faz a checagem de tipos. |
@@ -144,7 +152,7 @@ npm run build -w web          # gera web/dist (servido pelo backend)
 npm run start                 # http://127.0.0.1:3000
 ```
 
-Na primeira execução **fora de produção**, o servidor aplica as migrações e cria o **seed de demonstração** com dados **fictícios**. Todas as contas usam a senha `demo1234`:
+Com `AMBIENTE=TESTE` (e só nele), o servidor aplica as migrações e cria os **dados de demonstração**, todos **fictícios**, no banco do ambiente TESTE. `DESENVOLVIMENTO` e `PRODUCAO` nunca recebem dados de demonstração. Todas as contas usam a senha `demo1234`:
 
 | Conta | Papel |
 | --- | --- |
@@ -175,7 +183,7 @@ Também é criada a **Banca de Cenários de Teste — DEMONSTRAÇÃO**, com um g
 - fora do cronograma;
 - um dia com preparação incompleta.
 
-Ela traz ainda o avaliador extra `fabio@demo.banca`, só de um grupo. Veja o passo a passo em [docs/ROTEIRO_TESTES.md](docs/ROTEIRO_TESTES.md). Para não criá-la, use `SEED_SCENARIOS=0`.
+Ela traz ainda o avaliador extra `fabio@demo.banca`, só de um grupo. Veja o passo a passo em [docs/ROTEIRO_TESTES.md](docs/ROTEIRO_TESTES.md).
 
 ### Desenvolvimento (recarga automática)
 
@@ -185,25 +193,25 @@ npm run dev    # backend :3000 (tsx watch) + Vite :5173 com proxy de /api e /ws
 
 Abra `http://127.0.0.1:5173`.
 
-**Modo de testes acelerado:** `TIMER_SPEED=60 npm run dev` faz 1 minuto do cronômetro passar em 1 segundo. O servidor **recusa** esse valor quando `NODE_ENV=production`. As regras não mudam: etapas, faixas e eventos são os mesmos, só o relógio anda mais rápido.
+**Modo de testes acelerado:** `TIMER_SPEED=60 npm run dev` faz 1 minuto do cronômetro passar em 1 segundo. O servidor **recusa** esse valor quando `AMBIENTE=PRODUCAO`. As regras não mudam: etapas, faixas e eventos são os mesmos, só o relógio anda mais rápido.
 
 ### Usando PostgreSQL real
 
+Defina no `.env` a URL do ambiente em uso (`DATABASE_URL_DESENVOLVIMENTO`, `DATABASE_URL_TESTE` ou `DATABASE_URL_PRODUCAO`):
+
 ```bash
 createdb bancas
-DATABASE_URL=postgres://usuario:senha@localhost:5432/bancas npm run db:migrate
-DATABASE_URL=... npm run db:seed      # opcional (demonstração)
-DATABASE_URL=... npm run start
+npm run db:migrate     # migrações do banco do AMBIENTE (também rodam ao iniciar o servidor)
+npm run start
 ```
 
 ### Variáveis de ambiente ([.env.example](.env.example))
 
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
-| `NODE_ENV` | `development` | `production` desativa o seed automático e a aceleração e exige `COOKIE_SECRET`. |
+| `AMBIENTE` | (obrigatório) | Única chave de ambiente. `DESENVOLVIMENTO`: banco de trabalho, sem dados de demonstração. `TESTE`: banco com os dados de demonstração, criados ao iniciar. `PRODUCAO`: só os dados cadastrados; exige `COOKIE_SECRET` e recusa `TIMER_SPEED`. |
+| `DATABASE_URL_<AMBIENTE>` / `PGLITE_DIR_<AMBIENTE>` | vazio / `.data/pglite`, `.data/pglite-teste`, `.data/pglite-producao` | Banco de cada ambiente (PostgreSQL ou, com a URL vazia, PGlite), sempre separados. |
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Endereço do servidor. |
-| `DATABASE_URL` | vazio | PostgreSQL. Se vazio, usa PGlite em `PGLITE_DIR`. |
-| `PGLITE_DIR` | `.data/pglite` | Diretório do banco embutido. |
 | `COOKIE_SECRET` | (dev) | Obrigatório em produção, com mínimo de 32 caracteres. |
 | `COOKIE_SECURE` | `false` | `true` atrás de HTTPS. |
 | `SESSION_TTL_HOURS` | `12` | Validade da sessão. |
@@ -236,7 +244,9 @@ Resultado da última execução local (2026-10-12):
 | [server/test/pi.test.ts](server/test/pi.test.ts) | Rubrica do Projeto Integrador: escala 0–5 com rótulos, recusa de nota fora da escala ou do incremento, subtotais 25/20/15/15 e total 75/100 pela soma, parecer obrigatório e restrito ao primário/administrador, texto do PDF no formato do instrumento, logotipo, Local concatenado, escala por dia (professor com rubricas diferentes, professor que não se repete), cópia de escala e dias de participação no cadastro do professor (com as proteções). |
 | [server/test/scenarios.test.ts](server/test/scenarios.test.ts) | Banca de cenários: cada grupo na situação esperada; histórico de versões, reabertura e exceções; eventos do cronômetro (reinício, encerramento antecipado, ajuste, pausa, tempo esgotado); votação empatada; fechamento bloqueado com pendências (inclusive de avaliador extra) e com cronômetro ativo; reinício recusado em grupo fechado; reenvio após reabertura (v2); roteiro de preparação; correções do processo (contagem sem duplicidade, atribuição duplicada, atribuição do primário, ficha de avaliador designado depois do início). |
 | [server/test/materials.test.ts](server/test/materials.test.ts) | Grupo com resumo, vários orientadores, links e cor gerada (a menos usada); cor mantida na edição; links perigosos recusados (`javascript:`, `data:`); campo antigo "orientador"; distribuição atômica (`/groups/:id/place`: entrar no dia na posição, reordenar, mudar de dia levando as atribuições do grupo, sair do cronograma, renumeração, só administrador, dia de outra banca, grupo já apresentado fixo); materiais na área do professor (só quem atua no dia); cor e ordem no telão; tipos de rubrica (criação, nome único, ordem, rubrica nova no fim do tipo, exclusão só sem uso) e equivalência por posição quando o grupo usa outro tipo. |
-| [server/test/demo.test.ts](server/test/demo.test.ts) | Complemento das bancas de demonstração: tipo de rubrica em cada banca, resumo, orientadores e materiais fictícios; idempotente e sem sobrescrever o que já foi preenchido; cores distintas; migrações idempotentes. |
+| [server/test/baseline.test.ts](server/test/baseline.test.ts) | Rubrica do Projeto Integrador garantida em todo banco só com a migração (4 rubricas, 5 critérios, escala 0–5), sem duplicar; recriada completa depois da lixeira; ajuste único de cor, orientação e logotipo das bancas antigas, sem recolocar o logotipo removido; conversão das atribuições antigas (versão fixada) em fichas, inclusive de rubricas sem tipo e bancas sem tipo. |
+| [server/test/config.test.ts](server/test/config.test.ts) | `AMBIENTE` obrigatório e único: valores aceitos, banco de cada ambiente, regras de produção (`COOKIE_SECRET`, `TIMER_SPEED`) e os mesmos padrões de uso real em TESTE. |
+| [server/test/demo.test.ts](server/test/demo.test.ts) | Complemento das bancas de demonstração: tipo de rubrica em cada banca, resumo, orientadores e materiais fictícios (com o link do GitHub); idempotente e sem sobrescrever o que já foi preenchido; cores distintas; migrações idempotentes. |
 | [e2e/navigation.spec.ts](e2e/navigation.spec.ts) | Tela inicial com três acessos e sem menu; acesso direto ao login e à área; telão sem cabeçalho com barra que some quando ociosa; roteiro de preparação com "Resolver" levando à seção certa; nenhuma seção transborda a 390 px; envio bloqueado quando o salvamento da ficha falha (HTTP 500 simulado). |
 | [e2e/pi-flow.spec.ts](e2e/pi-flow.spec.ts) | Banca do Projeto Integrador pela interface: 4 professores avaliam com os botões de nível, a primária registra o parecer, fecha (81/100) e baixa o PDF preenchido. |
 | [e2e/config-flow.spec.ts](e2e/config-flow.spec.ts) | Configuração inteira pela interface, **na ordem do menu**: conta do docente, perfil de tempo, tipo de rubrica com duas rubricas, banca vinculada ao tipo (formulário em abas), dia, dois grupos com resumo, orientadores, materiais e cores diferentes, distribuição por "Mover para" e **arrastando com o mouse**, setas de ordem, primário e avaliador, votação e roteiro "pronta para começar". O avaliador entra antes, aguarda com a lista em ordem (07:30 / 07:47), abre o modal do projeto e a apresentação; o docente novo inicia, a ficha do avaliador abre sozinha com a 2ª rubrica do tipo, e a auditoria registra as ações. |
@@ -247,16 +257,14 @@ Resultado da última execução local (2026-10-12):
 ```bash
 npm ci
 npm run build                    # typecheck + build do frontend (web/dist)
-NODE_ENV=production COOKIE_SECRET=<32+ caracteres aleatórios> COOKIE_SECURE=true \
-DATABASE_URL=postgres://... HOST=0.0.0.0 PORT=3000 npm run start
+AMBIENTE=PRODUCAO COOKIE_SECRET=<32+ caracteres aleatórios> COOKIE_SECURE=true \
+DATABASE_URL_PRODUCAO=postgres://... HOST=0.0.0.0 PORT=3000 npm run start
 ```
 
 Para implantar:
 
 - Rode o servidor atrás de um proxy reverso com HTTPS (nginx, Caddy etc.), repassando `Upgrade`/`Connection` em `/ws` para o WebSocket.
-- Em produção as migrações rodam na inicialização, e o seed de demonstração **não** é criado. Para criar o primeiro administrador, há duas opções:
-  - rodar `npm run db:seed -- --allow-production` e trocar ou desativar as contas demo imediatamente;
-  - ou inserir o usuário diretamente no banco.
+- Em produção as migrações rodam na inicialização, e nenhum dado de demonstração é criado. Para criar o primeiro administrador, rode `npm run db:admin -- <e-mail> <nome completo>` com `AMBIENTE=PRODUCAO`; a senha é pedida no terminal.
 - Use **uma única instância** do backend: o canal em tempo real e o ticker do cronômetro rodam em memória por processo. Ver as limitações abaixo.
 
 **Implantação: PENDENTE.** Nenhum deploy foi feito; apenas execução local.
@@ -269,7 +277,7 @@ stateDiagram-v2
     state "Apresentação (grupo)" as G {
         [*] --> Aguardando
         Aguardando --> EmAndamento: Iniciar apresentação\n(registra início real, check "Iniciado",\nabre fichas + votação)
-        EmAndamento --> Iniciado: tempo esgotado / encerrar /\ntroca de grupo (com justificativa)
+        EmAndamento --> Iniciado: tempo esgotado / encerrar
         Iniciado --> AguardandoFechamento: todas as fichas obrigatórias\nenviadas (ou dispensadas)
         AguardandoFechamento --> Finalizado: Conferir e fechar\n(snapshot imutável vN)
         Finalizado --> Iniciado: Reabrir (admin + motivo)\nfichas voltam a rascunho → vN+1
@@ -283,7 +291,7 @@ stateDiagram-v2
         EmExecucao --> Encerrado: total = 00:00 (TEMPO ENCERRADO)\nou encerrar antes do prazo
         Pausado --> Encerrado: encerrar
         Encerrado --> Pausado: ajustar tempos (total maior)
-        EmExecucao --> Histórico: reiniciar (motivo) / troca de grupo
+        EmExecucao --> Histórico: reiniciar (motivo)
         Histórico --> NaoIniciado
     }
     state "Ficha do avaliador" as F {
@@ -306,7 +314,7 @@ Quando a especificação deixou margem, adotei a opção mais segura e documente
   - **Reiniciar** é recusado em grupo com avaliação fechada; é preciso reabrir antes.
   - Avaliador **designado depois do início** recebe a ficha ao abrir a área do professor ou a conferência. Assim ele pode avaliar ou ser dispensado; antes, ficava como "ficha não aberta" sem como dispensar.
   - A situação "Aguardando fechamento" conta cada avaliador **uma vez**: quem foi dispensado e também enviou não conta em dobro.
-  - Atribuição duplicada responde com mensagem clara. A edição da rubrica de uma atribuição valida se ela existe. A atribuição geral do **professor primário** só é removida depois de trocar o primário.
+  - Atribuição duplicada responde com mensagem clara. A edição da ficha de uma atribuição valida se ela existe no tipo de rubrica da banca (ou do grupo). A atribuição geral do **professor primário** só é removida depois de trocar o primário.
   - Ao mudar um grupo de dia, as atribuições específicas do grupo acompanham o grupo.
 - **Achados da [auditoria de UX/UI](docs/AUDITORIA-UX-UI-2026-10-11.md) tratados nesta versão:**
   - **P1, envio diferente do exibido:** o envio só acontece depois de confirmar que o servidor gravou exatamente o conteúdo exibido. Se o salvamento falha, nada é enviado e a edição permanece. Coberto por E2E com HTTP 500 simulado.
@@ -336,7 +344,7 @@ Quando a especificação deixou margem, adotei a opção mais segura e documente
   - Com `prefers-reduced-motion` ou com a opção "Reduzir animações", a piscada vira um alerta vermelho estático com borda dupla.
 - **Avançar etapa** pula para o início da próxima. O tempo não usado da etapa é descontado do total; na última etapa, avançar encerra o tempo.
 - **Ajustar tempos** altera só a sessão em curso, nunca o perfil global. Exige justificativa e é auditado. Se o tempo já tinha esgotado e o ajuste aumenta o total, a sessão volta a "Pausado".
-- **Troca de grupo** com apresentação ativa exige confirmação e justificativa. A sessão anterior é encerrada e preservada no histórico, junto com as fichas.
+- **Troca de grupo** fica bloqueada enquanto houver apresentação em andamento (em execução ou pausada): o primário precisa encerrá-la antes de selecionar outro grupo. A sessão e as fichas ficam preservadas no histórico.
 - **Edição após envio:** o padrão é `locked` (bloqueada). A alternativa `until_closure` permite editar, mas devolve a ficha a rascunho e exige reenviar.
 - **Cálculo:** `pontuação = Σ(nota/10 × peso) / Σ(pesos avaliados) × 100`, e o resultado final é a média simples das avaliações válidas.
   - Critério sem nota (opcional ou dispensado) **não** conta como zero: sai do numerador e do denominador.
@@ -353,7 +361,7 @@ Quando a especificação deixou margem, adotei a opção mais segura e documente
   - A reabertura é exclusiva do administrador e exige motivo de pelo menos 10 caracteres.
   - Na reabertura, as fichas voltam a rascunho e o snapshot antigo fica no histórico; o PDF da versão anterior continua disponível.
 - **Rubricas:** uma versão já usada em fichas não pode ser editada (409). É preciso criar uma nova versão; as fichas abertas mantêm a versão original.
-- **Professor primário:** é designado por dia, no máximo um, e cada troca fica registrada na auditoria. Ele **avalia como os demais professores**: na designação o administrador escolhe a rubrica dele, e o sistema cria (ou atualiza) a atribuição para todos os grupos do dia. Além de avaliar, o primário seleciona o grupo, controla o cronômetro e confere/fecha as avaliações. Grupos já fechados não recebem fichas novas.
+- **Professor primário:** é designado por dia, no máximo um, e cada troca fica registrada na auditoria. Ele **avalia como os demais professores**: na designação o administrador escolhe a ficha dele, e o sistema cria (ou atualiza) a atribuição para todos os grupos do dia. Além de avaliar, o primário seleciona o grupo, controla o cronômetro e confere/fecha as avaliações. Grupos já fechados não recebem fichas novas.
 - **Tipos de rubrica:** um tipo em uso por banca ou grupo não pode ser excluído; ao excluir um tipo livre, as rubricas continuam cadastradas, sem tipo. A banca aponta um tipo; o grupo pode apontar outro (equivalência por posição, veja "Hierarquia da banca").
 - **Distribuição:** colocar, mover entre dias, reordenar e tirar do cronograma é uma operação única e atômica no servidor. Grupo que já se apresentou não muda de dia nem sai do cronograma (reordenar no mesmo dia continua permitido). Ao sair do dia, as posições se renumeram (1, 2, 3…).
 - **Cor do grupo:** gerada no cadastro como a cor da paleta (12 cores) menos usada na banca; pode ser trocada. Grupos antigos recebem cores distintas na migração.

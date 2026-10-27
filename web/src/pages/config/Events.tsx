@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { api } from '../../lib/api.ts';
-import { ActionButton, Alert, Button, Checkbox, ConfirmDialog, Empty, Field, Modal, useToast } from '../../components/ui.tsx';
+import { ActionButton, Alert, Button, Checkbox, ConfirmDialog, Empty, Field, Modal, Struck, useToast } from '../../components/ui.tsx';
 import { useConfig, type EventData } from '../Configuracao.tsx';
 import { validateDayTimes } from '@shared/schedule.ts';
 import { dayLabel } from '../../lib/format.ts';
@@ -22,6 +22,8 @@ const emptyEvent = (): Omit<EventData, 'id' | 'days'> => ({
   publicDisplay: true,
   warnPct: 50,
   dangerPct: 20,
+  stageAlertBeforeSeconds: 15,
+  stageAlertAfterSeconds: 5,
   editAfterSubmit: 'locked',
   votePrivacy: 'nominal',
   institutionDetail: '',
@@ -42,14 +44,13 @@ export function EventsTab() {
   const [delOpen, setDelOpen] = useState(false);
   const rub = useRubrics();
   const toast = useToast();
-  const typeName = event?.rubricTypeId ? rub.data?.types.find((t) => t.id === event.rubricTypeId)?.name : null;
+  const typeRow = event?.rubricTypeId ? rub.data?.types.find((t) => t.id === event.rubricTypeId) : null;
+  const typeName = typeRow?.name;
   return (
     <div>
       <div className="toolbar">
-        <p className="muted small toolbar-text">
-          {events.length > 1 ? 'Troque a banca em edição no seletor “Banca”, no alto do menu.' : 'Uma banca pode acontecer em vários dias.'}
-        </p>
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <p className="muted small toolbar-text">{events.length > 1 ? 'Troque a banca em edição no seletor “Banca”, no alto do menu.' : 'Uma banca pode acontecer em vários dias.'}</p>
+        <Button variant="create" onClick={() => setEditing('new')}>
           + Nova banca
         </Button>
       </div>
@@ -60,10 +61,10 @@ export function EventsTab() {
             <div className="card-title">
               <h3 id="banca-atual">{event.name}</h3>
               <div className="row gap wrap">
-                <Button variant="primary" onClick={() => setEditing(event)}>
+                <Button variant="edit" onClick={() => setEditing(event)}>
                   Editar banca
                 </Button>
-                <Button variant="danger" onClick={() => setDelOpen(true)}>
+                <Button variant="delete" onClick={() => setDelOpen(true)}>
                   Excluir
                 </Button>
               </div>
@@ -74,7 +75,7 @@ export function EventsTab() {
                 <dd>
                   {typeName ? (
                     <button type="button" className="link" onClick={() => goTo('rubricas')}>
-                      {typeName}
+                      <Struck deleted={typeRow?.deleted}>{typeName}</Struck>
                     </button>
                   ) : (
                     <span className="warn-text">não definido — escolha em Editar banca</span>
@@ -117,15 +118,20 @@ export function EventsTab() {
             <details className="more">
               <summary>Modelos prontos</summary>
               <p className="small muted">
-                O modelo “Projeto Integrador” instala o tipo de rubrica com as 4 fichas, vincula-o a esta banca, define o total pela soma (0–100), o parecer e os textos do
-                documento. Os demais dados da banca são mantidos.
+                O modelo “Projeto Integrador” instala o tipo de rubrica com as 4 fichas, vincula-o a esta banca, define o total pela soma (0–100), o parecer e os textos do documento. Os demais dados da banca são
+                mantidos.
               </p>
               <ActionButton
                 onAction={async () => {
                   if (!window.confirm('Aplicar o modelo "Projeto Integrador" a esta banca?')) return;
-                  await api.post('/api/templates/projeto-integrador', { eventId: event.id });
+                  await api.post('/api/templates/projeto-integrador', {
+                    eventId: event.id,
+                  });
                   await Promise.all([reloadEvents(), rub.reload(true)]);
-                  toast.push({ kind: 'success', text: 'Modelo Projeto Integrador aplicado. Defina os avaliadores de cada dia na etapa 7.' });
+                  toast.push({
+                    kind: 'success',
+                    text: 'Modelo Projeto Integrador aplicado. Defina os avaliadores de cada dia na etapa 7.',
+                  });
                 }}
               >
                 Aplicar modelo Projeto Integrador
@@ -152,9 +158,9 @@ export function EventsTab() {
           open={delOpen}
           onOpenChange={setDelOpen}
           title={`Excluir "${event.name}"?`}
-          description="Remove dias, grupos e configurações da banca. Bancas com apresentações iniciadas não podem ser excluídas."
-          variant="danger"
-          confirmLabel="Excluir banca"
+          description="A banca, com seus dias, grupos e configurações, vai para a Lixeira e pode ser restaurada. Bancas com apresentações iniciadas não podem ser excluídas."
+          variant="delete"
+          confirmLabel="Mover para a lixeira"
           onConfirm={async () => {
             await api.del(`/api/events/${event.id}`);
             setEventId(null);
@@ -166,17 +172,7 @@ export function EventsTab() {
   );
 }
 
-function EventDialog({
-  initial,
-  types,
-  onClose,
-  onSaved,
-}: {
-  initial: EventData | null;
-  types: Array<{ id: number; name: string }>;
-  onClose: () => void;
-  onSaved: (id: number) => Promise<void>;
-}) {
+function EventDialog({ initial, types, onClose, onSaved }: { initial: EventData | null; types: Array<{ id: number; name: string; deleted?: boolean }>; onClose: () => void; onSaved: (id: number) => Promise<void> }) {
   const [f, setF] = useState(() => (initial ? { ...initial } : emptyEvent()));
   const [verdictText, setVerdictText] = useState(() => (initial?.verdictOptions ?? []).join('\n'));
   const [logo, setLogo] = useState<string | null | undefined>(undefined); // undefined = sem alteração
@@ -207,22 +203,36 @@ function EventDialog({
             </Field>
             <Field label="Tipo de rubrica" hint="O conjunto de fichas usado nesta banca. Cada grupo pode usar outro tipo, se precisar.">
               {(p) => (
-                <select {...p} value={f.rubricTypeId ?? ''} onChange={(e) => set({ rubricTypeId: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">(nenhum)</option>
-                  {types.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    {...p}
+                    value={f.rubricTypeId ?? ''}
+                    onChange={(e) =>
+                      set({
+                        rubricTypeId: e.target.value ? Number(e.target.value) : null,
+                      })
+                    }
+                  >
+                    <option value="">(nenhum)</option>
+                    {types
+                      .filter((t) => !t.deleted || t.id === f.rubricTypeId)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                          {t.deleted ? ' (excluído)' : ''}
+                        </option>
+                      ))}
+                  </select>
+                  {types.find((t) => t.id === f.rubricTypeId)?.deleted && (
+                    <p className="small">
+                      Tipo atual: <Struck deleted>{types.find((t) => t.id === f.rubricTypeId)?.name}</Struck> (excluído)
+                    </p>
+                  )}
+                </>
               )}
             </Field>
-            <Field label="Instituição">
-              {(p) => <input {...p} value={f.institution ?? ''} onChange={(e) => set({ institution: e.target.value })} />}
-            </Field>
-            <Field label="Ano/período">
-              {(p) => <input {...p} value={f.period ?? ''} onChange={(e) => set({ period: e.target.value })} />}
-            </Field>
+            <Field label="Instituição">{(p) => <input {...p} value={f.institution ?? ''} onChange={(e) => set({ institution: e.target.value })} />}</Field>
+            <Field label="Ano/período">{(p) => <input {...p} value={f.period ?? ''} onChange={(e) => set({ period: e.target.value })} />}</Field>
             <Field label="Fuso horário" hint="Padrão: America/Sao_Paulo">
               {(p) => <input {...p} value={f.timezone} onChange={(e) => set({ timezone: e.target.value })} />}
             </Field>
@@ -260,11 +270,41 @@ function EventDialog({
             <Field label="Opções de parecer da banca (uma por linha)" hint="Deixe vazio para não usar parecer. Com opções, o parecer é obrigatório para fechar.">
               {(p) => <textarea {...p} rows={4} value={verdictText} onChange={(e) => setVerdictText(e.target.value)} />}
             </Field>
-            <Field label="Faixa amarela a partir de (% restante da etapa)">
-              {(p) => <input {...p} type="number" min={2} max={99} value={f.warnPct} onChange={(e) => set({ warnPct: Number(e.target.value) })} />}
-            </Field>
+            <Field label="Faixa amarela a partir de (% restante da etapa)">{(p) => <input {...p} type="number" min={2} max={99} value={f.warnPct} onChange={(e) => set({ warnPct: Number(e.target.value) })} />}</Field>
             <Field label="Faixa laranja a partir de (% restante da etapa)" error={f.dangerPct >= f.warnPct ? 'Deve ser menor que o limiar amarelo.' : null}>
               {(p) => <input {...p} type="number" min={1} max={98} value={f.dangerPct} onChange={(e) => set({ dangerPct: Number(e.target.value) })} />}
+            </Field>
+            <Field label="Alerta antes da troca de etapa (segundos)" hint="Pulsa e destaca o cronômetro antes de entrar numa etapa marcada como “Destacar entrada” no perfil de tempo. 0 desliga.">
+              {(p) => (
+                <input
+                  {...p}
+                  type="number"
+                  min={0}
+                  max={120}
+                  value={f.stageAlertBeforeSeconds}
+                  onChange={(e) =>
+                    set({
+                      stageAlertBeforeSeconds: Math.min(120, Math.max(0, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              )}
+            </Field>
+            <Field label="Destaque depois da troca (segundos)" hint="Tempo que o cronômetro segue pulsando ao entrar na etapa, antes de voltar ao normal. 0 desliga.">
+              {(p) => (
+                <input
+                  {...p}
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={f.stageAlertAfterSeconds}
+                  onChange={(e) =>
+                    set({
+                      stageAlertAfterSeconds: Math.min(60, Math.max(0, Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              )}
             </Field>
           </div>
         </Tabs.Content>
@@ -309,7 +349,7 @@ function EventDialog({
                   {(logo || (logo === undefined && initial?.hasLogo)) && (
                     <>
                       <img className="logo-preview" alt="Logotipo atual" src={logo ?? `/api/events/${initial!.id}/logo`} />
-                      <Button variant="ghost" onClick={() => setLogo(null)}>
+                      <Button variant="delete" className="btn-sm" onClick={() => setLogo(null)}>
                         Remover logotipo
                       </Button>
                     </>
@@ -317,25 +357,13 @@ function EventDialog({
                 </div>
               )}
             </Field>
-            <Field label="Título do documento">
-              {(p) => <input {...p} value={f.reportHeader ?? ''} onChange={(e) => set({ reportHeader: e.target.value })} />}
-            </Field>
-            <Field label="Subtítulo">
-              {(p) => <input {...p} value={f.reportSubtitle ?? ''} onChange={(e) => set({ reportSubtitle: e.target.value })} />}
-            </Field>
-            <Field label="Rodapé">
-              {(p) => <input {...p} value={f.reportFooter ?? ''} onChange={(e) => set({ reportFooter: e.target.value })} />}
-            </Field>
-            <Field label="Cor institucional">
-              {(p) => <input {...p} type="color" value={f.reportColor} onChange={(e) => set({ reportColor: e.target.value })} />}
-            </Field>
+            <Field label="Título do documento">{(p) => <input {...p} value={f.reportHeader ?? ''} onChange={(e) => set({ reportHeader: e.target.value })} />}</Field>
+            <Field label="Subtítulo">{(p) => <input {...p} value={f.reportSubtitle ?? ''} onChange={(e) => set({ reportSubtitle: e.target.value })} />}</Field>
+            <Field label="Rodapé">{(p) => <input {...p} value={f.reportFooter ?? ''} onChange={(e) => set({ reportFooter: e.target.value })} />}</Field>
+            <Field label="Cor institucional">{(p) => <input {...p} type="color" value={f.reportColor} onChange={(e) => set({ reportColor: e.target.value })} />}</Field>
           </div>
-          <Field label="Finalidade da banca (capa do PDF)">
-            {(p) => <textarea {...p} rows={3} value={f.reportPurpose ?? ''} onChange={(e) => set({ reportPurpose: e.target.value })} />}
-          </Field>
-          <Field label="Orientação aos avaliadores (capa do PDF)">
-            {(p) => <textarea {...p} rows={2} value={f.reportGuidance ?? ''} onChange={(e) => set({ reportGuidance: e.target.value })} />}
-          </Field>
+          <Field label="Finalidade da banca (capa do PDF)">{(p) => <textarea {...p} rows={3} value={f.reportPurpose ?? ''} onChange={(e) => set({ reportPurpose: e.target.value })} />}</Field>
+          <Field label="Orientação aos avaliadores (capa do PDF)">{(p) => <textarea {...p} rows={2} value={f.reportGuidance ?? ''} onChange={(e) => set({ reportGuidance: e.target.value })} />}</Field>
         </Tabs.Content>
       </Tabs.Root>
       {err && <Alert kind="error">{err}</Alert>}
@@ -394,7 +422,7 @@ function DaysSection({ event }: { event: EventData }) {
     <section className="card step-card" aria-labelledby="dias-banca">
       <div className="card-title">
         <h3 id="dias-banca">Dias da banca ({event.days.length})</h3>
-        <Button variant="primary" onClick={() => setEditing('new')}>
+        <Button variant="create" onClick={() => setEditing('new')}>
           + Novo dia
         </Button>
       </div>
@@ -411,9 +439,15 @@ function DaysSection({ event }: { event: EventData }) {
                   {d.breaks.length > 0 && ` · ${d.breaks.map((b) => `${b.label} ${b.start}–${b.end}`).join('; ')}`}
                 </span>
                 <span className="small">
-                  Perfil de tempo: {profiles.find((p) => p.id === d.defaultProfileId)?.name ?? <span className="warn-text">não definido</span>} · Primário:{' '}
+                  Perfil de tempo:{' '}
+                  {profiles.find((p) => p.id === d.defaultProfileId) ? (
+                    <Struck deleted={profiles.find((p) => p.id === d.defaultProfileId)?.deleted}>{profiles.find((p) => p.id === d.defaultProfileId)?.name}</Struck>
+                  ) : (
+                    <span className="warn-text">não definido</span>
+                  )}{' '}
+                  · Primário:{' '}
                   {d.primaryUserId ? (
-                    users.find((u) => u.id === d.primaryUserId)?.name ?? '—'
+                    (users.find((u) => u.id === d.primaryUserId)?.name ?? '—')
                   ) : (
                     <button type="button" className="link warn-text" onClick={() => (setDayId(d.id), goTo('avaliadores'))}>
                       designar na etapa 7
@@ -422,14 +456,15 @@ function DaysSection({ event }: { event: EventData }) {
                 </span>
               </div>
               <div className="row-actions">
-                <Button variant="ghost" onClick={() => (setDayId(d.id), setEditing(d))} aria-label={`Editar ${dayLabel(d)}`}>
+                <Button variant="edit" className="btn-sm" onClick={() => (setDayId(d.id), setEditing(d))} aria-label={`Editar ${dayLabel(d)}`}>
                   Editar
                 </Button>
                 <ActionButton
-                  variant="ghost"
+                  variant="delete"
+                  className="btn-sm"
                   aria-label={`Excluir ${dayLabel(d)}`}
                   onAction={async () => {
-                    if (!window.confirm(`Excluir o dia ${dayLabel(d)}?`)) return;
+                    if (!window.confirm(`Mover o dia ${dayLabel(d)} para a lixeira? Os grupos dele voltam para "não distribuídos".`)) return;
                     await api.del(`/api/days/${d.id}`);
                     await reloadEvents();
                   }}
@@ -461,8 +496,25 @@ function DayDialog({ eventId, initial, onClose, onSaved }: { eventId: number; in
   const { profiles } = useConfig();
   const [f, setF] = useState<DayForm>(() =>
     initial
-      ? { ...initial, room: initial.room ?? '', breaks: initial.breaks.map(({ label, start, end }) => ({ label, start, end })) }
-      : { label: '', date: new Date().toISOString().slice(0, 10), startTime: '07:30', endTime: '12:30', room: '', gapMinutes: 5, defaultProfileId: profiles[0]?.id ?? null, breaks: [{ label: 'Intervalo', start: '10:00', end: '10:20' }] },
+      ? {
+          ...initial,
+          room: initial.room ?? '',
+          breaks: initial.breaks.map(({ label, start, end }) => ({
+            label,
+            start,
+            end,
+          })),
+        }
+      : {
+          label: '',
+          date: new Date().toISOString().slice(0, 10),
+          startTime: '07:30',
+          endTime: '12:30',
+          room: '',
+          gapMinutes: 5,
+          defaultProfileId: profiles[0]?.id ?? null,
+          breaks: [{ label: 'Intervalo', start: '10:00', end: '10:20' }],
+        },
   );
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -472,33 +524,36 @@ function DayDialog({ eventId, initial, onClose, onSaved }: { eventId: number; in
   return (
     <Modal open onOpenChange={(v) => !v && onClose()} title={initial ? 'Editar dia' : 'Novo dia'} wide>
       <div className="grid3">
-        <Field label="Identificação">
-          {(p) => <input {...p} placeholder="Dia 1" value={f.label} onChange={(e) => set({ label: e.target.value })} />}
-        </Field>
+        <Field label="Identificação">{(p) => <input {...p} placeholder="Dia 1" value={f.label} onChange={(e) => set({ label: e.target.value })} />}</Field>
         <Field label="Data" required>
           {(p) => <input {...p} type="date" value={f.date} onChange={(e) => set({ date: e.target.value })} />}
         </Field>
-        <Field label="Sala/local">
-          {(p) => <input {...p} value={f.room} onChange={(e) => set({ room: e.target.value })} />}
-        </Field>
+        <Field label="Sala/local">{(p) => <input {...p} value={f.room} onChange={(e) => set({ room: e.target.value })} />}</Field>
         <Field label="Início" required>
           {(p) => <input {...p} type="time" value={f.startTime} onChange={(e) => set({ startTime: e.target.value })} />}
         </Field>
         <Field label="Encerramento" required>
           {(p) => <input {...p} type="time" value={f.endTime} onChange={(e) => set({ endTime: e.target.value })} />}
         </Field>
-        <Field label="Troca entre grupos (min)">
-          {(p) => <input {...p} type="number" min={0} max={120} value={f.gapMinutes} onChange={(e) => set({ gapMinutes: Number(e.target.value) })} />}
-        </Field>
+        <Field label="Troca entre grupos (min)">{(p) => <input {...p} type="number" min={0} max={120} value={f.gapMinutes} onChange={(e) => set({ gapMinutes: Number(e.target.value) })} />}</Field>
         <Field label="Perfil de tempo padrão">
           {(p) => (
-            <select {...p} value={f.defaultProfileId ?? ''} onChange={(e) => set({ defaultProfileId: e.target.value ? Number(e.target.value) : null })}>
+            <select
+              {...p}
+              value={f.defaultProfileId ?? ''}
+              onChange={(e) =>
+                set({
+                  defaultProfileId: e.target.value ? Number(e.target.value) : null,
+                })
+              }
+            >
               <option value="">(nenhum)</option>
               {profiles
-                .filter((x) => x.active || x.id === f.defaultProfileId)
+                .filter((x) => (x.active && !x.deleted) || x.id === f.defaultProfileId)
                 .map((x) => (
                   <option key={x.id} value={x.id}>
                     {x.name}
+                    {x.deleted ? ' (excluído)' : ''}
                   </option>
                 ))}
             </select>
@@ -508,15 +563,50 @@ function DayDialog({ eventId, initial, onClose, onSaved }: { eventId: number; in
       <h4>Intervalos</h4>
       {f.breaks.map((b, i) => (
         <div key={i} className="row gap wrap break-row">
-          <input aria-label={`Nome do intervalo ${i + 1}`} value={b.label} onChange={(e) => set({ breaks: f.breaks.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} />
-          <input aria-label={`Início do intervalo ${i + 1}`} type="time" value={b.start} onChange={(e) => set({ breaks: f.breaks.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)) })} />
-          <input aria-label={`Fim do intervalo ${i + 1}`} type="time" value={b.end} onChange={(e) => set({ breaks: f.breaks.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)) })} />
-          <Button variant="ghost" aria-label={`Remover intervalo ${i + 1}`} onClick={() => set({ breaks: f.breaks.filter((_, j) => j !== i) })}>
+          <input
+            aria-label={`Nome do intervalo ${i + 1}`}
+            value={b.label}
+            onChange={(e) =>
+              set({
+                breaks: f.breaks.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)),
+              })
+            }
+          />
+          <input
+            aria-label={`Início do intervalo ${i + 1}`}
+            type="time"
+            value={b.start}
+            onChange={(e) =>
+              set({
+                breaks: f.breaks.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)),
+              })
+            }
+          />
+          <input
+            aria-label={`Fim do intervalo ${i + 1}`}
+            type="time"
+            value={b.end}
+            onChange={(e) =>
+              set({
+                breaks: f.breaks.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)),
+              })
+            }
+          />
+          <Button variant="delete" className="btn-sm" aria-label={`Remover intervalo ${i + 1}`} onClick={() => set({ breaks: f.breaks.filter((_, j) => j !== i) })}>
             ✕
           </Button>
         </div>
       ))}
-      <Button onClick={() => set({ breaks: [...f.breaks, { label: 'Intervalo', start: '10:00', end: '10:15' }] })}>+ Intervalo</Button>
+      <Button
+        variant="create"
+        onClick={() =>
+          set({
+            breaks: [...f.breaks, { label: 'Intervalo', start: '10:00', end: '10:15' }],
+          })
+        }
+      >
+        + Intervalo
+      </Button>
       {errors.length > 0 && (
         <Alert kind="warn">
           {errors.map((e, i) => (

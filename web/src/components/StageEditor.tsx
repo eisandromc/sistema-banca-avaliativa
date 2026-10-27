@@ -25,6 +25,8 @@ export function StageEditor({ stages, onChange }: { stages: Stage[]; onChange: (
             <th scope="col">Minutos</th>
             <th scope="col">Segundos</th>
             <th scope="col">Cor</th>
+            <th scope="col" title="Pausa entre etapas: não entra na numeração “Etapa X/Y”.">Pausa</th>
+            <th scope="col" title="Pulsa antes e logo depois de entrar nesta etapa.">Destacar entrada</th>
             <th scope="col">
               <span className="sr-only">Ações</span>
             </th>
@@ -62,6 +64,12 @@ export function StageEditor({ stages, onChange }: { stages: Stage[]; onChange: (
               <td>
                 <input aria-label={`Cor da etapa ${i + 1}`} type="color" value={s.color} onChange={(e) => set(i, { color: e.target.value })} />
               </td>
+              <td>
+                <input aria-label={`Etapa ${i + 1} é uma pausa`} type="checkbox" checked={!!s.pause} onChange={(e) => set(i, { pause: e.target.checked })} />
+              </td>
+              <td>
+                <input aria-label={`Destacar a entrada na etapa ${i + 1}`} type="checkbox" checked={!!s.alert} onChange={(e) => set(i, { alert: e.target.checked })} />
+              </td>
               <td className="row-actions">
                 <Button variant="ghost" aria-label={`Subir etapa ${i + 1}`} disabled={i === 0} onClick={() => move(i, -1)}>
                   ↑
@@ -69,7 +77,7 @@ export function StageEditor({ stages, onChange }: { stages: Stage[]; onChange: (
                 <Button variant="ghost" aria-label={`Descer etapa ${i + 1}`} disabled={i === stages.length - 1} onClick={() => move(i, 1)}>
                   ↓
                 </Button>
-                <Button variant="ghost" aria-label={`Remover etapa ${i + 1}`} disabled={stages.length <= 1} onClick={() => onChange(stages.filter((_, j) => j !== i))}>
+                <Button variant="delete" className="btn-sm" aria-label={`Remover etapa ${i + 1}`} disabled={stages.length <= 1} onClick={() => onChange(stages.filter((_, j) => j !== i))}>
                   ✕
                 </Button>
               </td>
@@ -78,16 +86,20 @@ export function StageEditor({ stages, onChange }: { stages: Stage[]; onChange: (
         </tbody>
       </table>
       <div className="row between">
-        <Button onClick={() => onChange([...stages, { name: `Etapa ${stages.length + 1}`, durationSeconds: 300, color: PALETTE[stages.length % PALETTE.length]! }])}>
-          + Adicionar etapa
-        </Button>
+        <div className="row gap wrap">
+          <Button variant="create" onClick={() => onChange([...stages, { name: `Etapa ${stages.length + 1}`, durationSeconds: 300, color: PALETTE[stages.length % PALETTE.length]! }])}>
+            + Adicionar etapa
+          </Button>
+          <Button variant="create" onClick={() => onChange([...stages, { name: 'Pausa — preparação', durationSeconds: 30, color: '#64748b', pause: true }])}>+ Adicionar pausa</Button>
+        </div>
         <strong>Total: {formatClock(total * 1000)}</strong>
       </div>
       {stages.some((s) => s.durationSeconds <= 0 || !s.name.trim()) && <p className="error-text">Toda etapa precisa de nome e duração maior que zero.</p>}
+      {stages.length > 0 && stages.every((s) => s.pause) && <p className="error-text">Inclua ao menos uma etapa que não seja pausa.</p>}
     </div>
   );
 }
 
 export function stagesValid(stages: Stage[]) {
-  return stages.length > 0 && stages.every((s) => s.durationSeconds > 0 && s.name.trim());
+  return stages.length > 0 && stages.every((s) => s.durationSeconds > 0 && s.name.trim()) && stages.some((s) => !s.pause);
 }

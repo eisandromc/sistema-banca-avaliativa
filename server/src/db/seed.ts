@@ -81,41 +81,12 @@ export async function seedDemo(db: Database, opts: { force?: boolean; date?: str
       await q.query('insert into schedule_entries (day_id, group_id, position) values ($1,$2,$3)', [day!.id, r!.id, pos++]);
     }
 
-    const rubric = async (name: string, title: string, criteria: Array<[string, string, number, boolean, boolean]>) => {
-      const t = await q.one<{ id: number }>('insert into rubric_templates (name, description) values ($1, $2) returning id', [name, 'Rubrica exemplificativa de demonstração.']);
-      const v = await q.one<{ id: number }>(
-        `insert into rubric_versions (template_id, version, title, instructions, scale_min, scale_max, scale_step)
-         values ($1, 1, $2, 'Atribua notas de 0 a 10 (incrementos de 0,5). Zero é uma nota válida; deixe em branco apenas o que não avaliou.', 0, 10, 0.5) returning id`,
-        [t!.id, title],
-      );
-      let i = 0;
-      for (const [ct, cd, w, req, comment] of criteria) {
-        await q.query(
-          'insert into rubric_criteria (version_id, position, title, description, weight, required, comment_enabled) values ($1,$2,$3,$4,$5,$6,$7)',
-          [v!.id, i++, ct, cd, w, req, comment],
-        );
-      }
-      return v!.id;
-    };
-    const tecnica = await rubric('Rubrica Técnica (exemplo)', 'Avaliação técnica', [
-      ['Domínio técnico', 'Conhecimento dos conceitos e das escolhas técnicas.', 3, true, true],
-      ['Funcionamento da demonstração', 'O protótipo funciona como descrito.', 3, true, true],
-      ['Organização do projeto', 'Planejamento, documentação e divisão de tarefas.', 2, true, false],
-      ['Respostas às perguntas', 'Clareza e segurança nas respostas à banca.', 2, true, false],
-    ]);
-    const comunicacao = await rubric('Rubrica de Comunicação (exemplo)', 'Avaliação de comunicação', [
-      ['Clareza da apresentação', 'Sequência lógica e linguagem adequada.', 2, true, true],
-      ['Uso do tempo', 'Respeito às etapas e ao tempo total.', 1, true, false],
-      ['Material visual', 'Slides/cartazes legíveis e pertinentes (opcional).', 1, false, false],
-    ]);
-    await q.query('insert into evaluator_assignments (day_id, user_id, rubric_version_id) values ($1,$2,$3),($1,$4,$3),($1,$5,$6)', [
-      day!.id,
-      ids.ana,
-      tecnica,
-      ids.bruno,
-      ids.carla,
-      comunicacao,
-    ]);
+    // Rubricas da banca: as fichas do Projeto Integrador (1 conteúdo técnico, 2 artigo e pesquisa, 3 projeto integrador, 4 apresentação).
+    const { installPiRubrics, ensurePiType } = await import('../templates/projetoIntegrador.ts');
+    const rubrics = await installPiRubrics(q);
+    const typeId = await ensurePiType(q);
+    await q.query('update events set rubric_type_id = $2 where id = $1', [ev!.id, typeId]);
+    await q.query('insert into evaluator_assignments (day_id, user_id, rubric_position) values ($1,$2,1),($1,$3,2),($1,$4,3)', [day!.id, ids.ana, ids.bruno, ids.carla]);
 
     const vq = await q.one<{ id: number }>(
       `insert into vote_questions (event_id, title, prompt, enabled, required, allow_abstain, rule)
@@ -125,7 +96,7 @@ export async function seedDemo(db: Database, opts: { force?: boolean; date?: str
     await q.query("insert into vote_options (question_id, position, label, is_abstain) values ($1,0,'Indicar',false),($1,1,'Não indicar',false),($1,2,'Abster-se',true)", [vq!.id]);
 
     await q.query("insert into audit_logs (action, entity, details) values ('seed.demo', 'system', $1)", [{ note: 'Dados fictícios de demonstração', date }]);
-    return { skipped: false as const, eventId: ev!.id, dayId: day!.id, users: ids, profileId: profile!.id, rubrics: { tecnica, comunicacao } };
+    return { skipped: false as const, eventId: ev!.id, dayId: day!.id, users: ids, profileId: profile!.id, rubricTypeId: typeId, rubrics };
   });
 }
 
@@ -139,7 +110,7 @@ export async function seedPiDemo(db: Database, opts: { date?: string } = {}) {
   if (await db.one('select 1 from events where name = $1', [PI_DEMO_EVENT])) return { skipped: true as const };
   const { installPiRubrics, applyPiEventConfig } = await import('../templates/projetoIntegrador.ts');
   return db.tx(async (q) => {
-    const [tecnico, artigo, pi, apresentacao] = await installPiRubrics(q);
+    await installPiRubrics(q);
     const pw = await hashPassword(DEMO_PASSWORD);
     const user = async (name: string, email: string) => {
       const u = await q.one<{ id: number }>('select id from users where lower(email) = $1', [email]);
@@ -184,18 +155,19 @@ export async function seedPiDemo(db: Database, opts: { date?: string } = {}) {
     const d2 = await day('Dia 2', date2, 'Laboratório 3', bruno);
     await q.query("insert into breaks (day_id, label, start_time, end_time) values ($1, 'Intervalo', '15:20', '15:40'), ($2, 'Intervalo', '15:20', '15:40')", [d1, d2]);
 
-    // Escala do Dia 1 (Ana conduz e avalia o conteúdo técnico).
-    const assign = async (d: number, u: number, v: number) =>
-      q.query('insert into evaluator_assignments (day_id, user_id, rubric_version_id) values ($1, $2, $3)', [d, u, v]);
-    await assign(d1, ana, tecnico!);
-    await assign(d1, bruno, artigo!);
-    await assign(d1, carla, pi!);
-    await assign(d1, daniel, apresentacao!);
+    // Escala do Dia 1 (Ana conduz e avalia o conteúdo técnico). Fichas do tipo da banca: 1 técnico, 2 artigo, 3 PI, 4 apresentação.
+    const [tecnico, artigo, pi, apresentacao] = [1, 2, 3, 4];
+    const assign = async (d: number, u: number, ficha: number) =>
+      q.query('insert into evaluator_assignments (day_id, user_id, rubric_position) values ($1, $2, $3)', [d, u, ficha]);
+    await assign(d1, ana, tecnico);
+    await assign(d1, bruno, artigo);
+    await assign(d1, carla, pi);
+    await assign(d1, daniel, apresentacao);
     // Escala do Dia 2: outra configuração (Bruno conduz; Ana muda de dimensão; Carla não participa; Elisa entra).
-    await assign(d2, bruno, tecnico!);
-    await assign(d2, elisa, artigo!);
-    await assign(d2, ana, pi!);
-    await assign(d2, daniel, apresentacao!);
+    await assign(d2, bruno, tecnico);
+    await assign(d2, elisa, artigo);
+    await assign(d2, ana, pi);
+    await assign(d2, daniel, apresentacao);
 
     const groups: Array<[number, string, string, string, string[]]> = [
       [d1, 'PI-01', '2º A (demo)', 'Plataforma de Monitoramento de Hortas Escolares (fictício)', ['Estudante Fictício C1', 'Estudante Fictícia C2', 'Estudante Fictício C3']],

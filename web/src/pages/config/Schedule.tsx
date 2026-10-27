@@ -4,7 +4,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from '@dnd-kit/utilities';
 import { api, errorMessage } from '../../lib/api.ts';
 import type { DaySchedule, ScheduleRow } from '../../lib/types.ts';
-import { ActionButton, Alert, Button, Empty, ErrorBox, Spinner, StartedCheck, StatusBadge, useLoad, useToast } from '../../components/ui.tsx';
+import { ActionButton, Alert, Button, Empty, ErrorBox, Spinner, StartedCheck, StatusBadge, Struck, useLoad, useToast } from '../../components/ui.tsx';
 import { NeedDay, useConfig } from '../Configuracao.tsx';
 import { dayLabel, fmtTime, minutes } from '../../lib/format.ts';
 
@@ -25,7 +25,12 @@ function ScheduleInner() {
   const [saving, setSaving] = useState(false);
   useEffect(() => setOrder(sch.data?.entries ?? []), [sch.data]);
 
-  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
 
   if (sch.loading && !sch.data) return <Spinner />;
   if (sch.error) return <ErrorBox error={sch.error} onRetry={sch.reload} />;
@@ -84,8 +89,8 @@ function ScheduleInner() {
         </div>
       </div>
       <p className="muted">
-        Dia {s.day.startTime}–{s.day.endTime} · intervalos: {s.day.breaks.map((b) => `${b.label} ${b.start}–${b.end}`).join('; ') || 'nenhum'} · troca entre grupos{' '}
-        {s.day.gapMinutes} min · término previsto: <strong>{s.predictedEnd ?? '—'}</strong> {saving && <span className="muted">· salvando ordem…</span>}
+        Dia {s.day.startTime}–{s.day.endTime} · intervalos: {s.day.breaks.map((b) => `${b.label} ${b.start}–${b.end}`).join('; ') || 'nenhum'} · troca entre grupos {s.day.gapMinutes} min · término previsto:{' '}
+        <strong>{s.predictedEnd ?? '—'}</strong> {saving && <span className="muted">· salvando ordem…</span>}
       </p>
       {s.warnings.map((w, i) => (
         <Alert key={i} kind="warn">
@@ -114,8 +119,11 @@ function ScheduleInner() {
           {unscheduled.map((g) => (
             <li key={g.id}>
               <ActionButton
+                variant="create"
                 onAction={async () => {
-                  await api.post(`/api/days/${dayId}/schedule`, { groupId: g.id });
+                  await api.post(`/api/days/${dayId}/schedule`, {
+                    groupId: g.id,
+                  });
                   await Promise.all([sch.reload(true), groups.reload(true)]);
                 }}
               >
@@ -141,7 +149,12 @@ function SortableRow({
   index: number;
   count: number;
   onMove: (from: number, to: number) => void;
-  profiles: Array<{ id: number; name: string; active: boolean }>;
+  profiles: Array<{
+    id: number;
+    name: string;
+    active: boolean;
+    deleted?: boolean;
+  }>;
   reload: () => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.entryId });
@@ -174,8 +187,7 @@ function SortableRow({
           <strong>{row.code}</strong> · {row.className} — {row.title}
         </div>
         <div className="small muted">
-          Previsto {row.predictedStart}–{row.predictedEnd} ({minutes(row.durationSeconds)})
-          {row.movedAfterBreak && ` · após ${row.movedAfterBreak}`}
+          Previsto {row.predictedStart}–{row.predictedEnd} ({minutes(row.durationSeconds)}){row.movedAfterBreak && ` · após ${row.movedAfterBreak}`}
           {row.overflow && <strong className="warn-text"> · ultrapassa o horário do dia</strong>}
           {row.startedAt && ` · real ${fmtTime(row.startedAt, event?.timezone)}${row.endedAt ? `–${fmtTime(row.endedAt, event?.timezone)}` : ''}`}
         </div>
@@ -188,7 +200,9 @@ function SortableRow({
         disabled={row.started}
         onChange={async (e) => {
           try {
-            await api.patch(`/api/schedule-entries/${row.entryId}`, { timeProfileId: e.target.value ? Number(e.target.value) : null });
+            await api.patch(`/api/schedule-entries/${row.entryId}`, {
+              timeProfileId: e.target.value ? Number(e.target.value) : null,
+            });
             await reload();
           } catch (err) {
             toast.push({ kind: 'error', text: errorMessage(err) });
@@ -197,20 +211,28 @@ function SortableRow({
       >
         <option value="">Perfil do dia</option>
         {profiles
-          .filter((p) => p.active || p.id === row.timeProfileId)
+          .filter((p) => (p.active && !p.deleted) || p.id === row.timeProfileId)
           .map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
+              {p.deleted ? ' (excluído)' : ''}
             </option>
           ))}
       </select>
+      {profiles.find((p) => p.id === row.timeProfileId)?.deleted && (
+        <span className="small">
+          <Struck deleted>{profiles.find((p) => p.id === row.timeProfileId)?.name}</Struck>
+        </span>
+      )}
       {!row.started && event && event.days.length > 1 && (
         <select
           aria-label={`Mover ${row.code} para outro dia`}
           value=""
           onChange={async (e) => {
             try {
-              await api.patch(`/api/schedule-entries/${row.entryId}`, { dayId: Number(e.target.value) });
+              await api.patch(`/api/schedule-entries/${row.entryId}`, {
+                dayId: Number(e.target.value),
+              });
               await reload();
             } catch (err) {
               toast.push({ kind: 'error', text: errorMessage(err) });
@@ -236,7 +258,8 @@ function SortableRow({
         </Button>
         {!row.started && (
           <ActionButton
-            variant="ghost"
+            variant="delete"
+            className="btn-sm"
             aria-label={`Remover ${row.code} do cronograma`}
             onAction={async () => {
               await api.del(`/api/schedule-entries/${row.entryId}`);

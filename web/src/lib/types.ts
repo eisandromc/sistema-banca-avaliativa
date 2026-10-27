@@ -25,7 +25,18 @@ export interface LiveTimer {
 export interface LiveState {
   serverNow: number;
   day: { id: number; label: string; date: string; room: string | null };
-  event: { id: number; name: string; institution: string | null; warnPct: number; dangerPct: number; showStudentNames: boolean };
+  event: {
+    id: number;
+    name: string;
+    institution: string | null;
+    warnPct: number;
+    dangerPct: number;
+    /** Alerta de troca de etapa: segundos antes de entrar numa etapa destacada (0 = desligado). */
+    stageAlertBeforeSeconds: number;
+    /** Segundos de destaque depois de entrar na etapa (0 = desligado). */
+    stageAlertAfterSeconds: number;
+    showStudentNames: boolean;
+  };
   current: null | {
     entryId: number;
     groupId: number;
@@ -206,6 +217,16 @@ export interface MyDay {
   canControl: boolean;
 }
 
+/** Arquivo enviado no cadastro do grupo (slides ou artigo). */
+export interface GroupFile {
+  kind: 'slides' | 'article';
+  name: string;
+  mime: string;
+  size: number;
+  uploadedAt: string;
+  url: string;
+}
+
 /** Resumo, orientadores e materiais do projeto (área do professor). */
 export interface ProjectInfo {
   id: number;
@@ -218,6 +239,9 @@ export interface ProjectInfo {
   projectUrl: string | null;
   pdfUrl: string | null;
   slidesUrl: string | null;
+  githubUrl: string | null;
+  slidesFile: GroupFile | null;
+  articleFile: GroupFile | null;
   color: string;
   position: number | null;
   rubricTypeName: string | null;

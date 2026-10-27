@@ -5,6 +5,7 @@ import { RealtimeHub } from '../realtime/hub.ts';
 import { TimerService } from '../services/timer.ts';
 import { saveDraft, submitEvaluation } from '../services/evaluations.ts';
 import { closeGroup, reopenGroup } from '../services/closure.ts';
+import { ensurePiType, installPiRubrics } from '../templates/projetoIntegrador.ts';
 
 /**
  * Banca de CENÁRIOS DE TESTE (dados FICTÍCIOS): um grupo em cada situação possível do processo,
@@ -73,35 +74,15 @@ export async function seedScenarios(db: Database, opts: { date?: string; now?: n
       [profile],
     );
 
-    const rubric = async (name: string, title: string, criteria: Array<[string, number, boolean]>) => {
-      const t = (await q.one<{ id: number }>('insert into rubric_templates (name, description) values ($1, $2) returning id', [name, 'Rubrica fictícia para testes.']))!.id;
-      const v = (await q.one<{ id: number }>(
-        `insert into rubric_versions (template_id, version, title, instructions, scale_min, scale_max, scale_step)
-         values ($1, 1, $2, 'Notas de 0 a 10 (incrementos de 0,5). Zero é válido; em branco = não avaliado.', 0, 10, 0.5) returning id`,
-        [t, title],
-      ))!.id;
-      let i = 0;
-      for (const [ct, w, req] of criteria) {
-        await q.query('insert into rubric_criteria (version_id, position, title, weight, required, comment_enabled) values ($1,$2,$3,$4,$5,true)', [v, i++, ct, w, req]);
-      }
-      return v;
-    };
-    const tecnica = await rubric('Cenários — Técnica (teste)', 'Avaliação técnica (cenários)', [
-      ['Solução técnica', 3, true],
-      ['Funcionamento', 2, true],
-      ['Organização', 1, true],
-      ['Inovação (opcional)', 1, false],
-    ]);
-    const comunicacao = await rubric('Cenários — Comunicação (teste)', 'Avaliação da comunicação (cenários)', [
-      ['Clareza', 2, true],
-      ['Uso do tempo', 1, true],
-    ]);
+    // Rubricas da banca de cenários: as fichas do Projeto Integrador (5 critérios de 0 a 5 cada).
+    await installPiRubrics(q);
+    const typeId = await ensurePiType(q);
 
     const ev = (await q.one<{ id: number }>(
-      `insert into events (name, institution, period, report_header, report_subtitle, report_footer, school_location, show_student_names)
+      `insert into events (name, institution, period, report_header, report_subtitle, report_footer, school_location, show_student_names, rubric_type_id)
        values ($1, 'Instituição Fictícia de Demonstração', '2026/2', 'Instituição Fictícia de Demonstração', 'Banca de cenários de teste (dados fictícios)',
-               'Documento de teste — dados fictícios', 'Escola Fictícia — Bloco de Testes', true) returning id`,
-      [SCENARIO_EVENT],
+               'Documento de teste — dados fictícios', 'Escola Fictícia — Bloco de Testes', true, $2) returning id`,
+      [SCENARIO_EVENT, typeId],
     ))!.id;
     const vq = (await q.one<{ id: number }>(
       `insert into vote_questions (event_id, title, prompt, enabled, required, allow_abstain, rule)
@@ -143,16 +124,10 @@ export async function seedScenarios(db: Database, opts: { date?: string; now?: n
     await addGroup('C-09', 'Grupo fora do cronograma', null, 0);
     await addGroup('C-10', 'Grupo de um dia sem preparação', incompleteDay, 1);
 
-    await q.query('insert into evaluator_assignments (day_id, user_id, rubric_version_id) values ($1,$2,$3),($1,$4,$3),($1,$5,$6)', [
-      day,
-      users.ana,
-      tecnica,
-      users.bruno,
-      users.carla,
-      comunicacao,
-    ]);
-    // Avaliador extra apenas para o C-06 (atribuição específica do grupo).
-    await q.query('insert into evaluator_assignments (day_id, user_id, group_id, rubric_version_id) values ($1,$2,$3,$4)', [day, users.fabio, groups['C-06'], comunicacao]);
+    // Fichas: Ana 1ª (conteúdo técnico), Bruno 2ª (artigo e pesquisa), Carla 3ª (projeto integrador).
+    await q.query('insert into evaluator_assignments (day_id, user_id, rubric_position) values ($1,$2,1),($1,$3,2),($1,$4,3)', [day, users.ana, users.bruno, users.carla]);
+    // Avaliador extra apenas para o C-06 (atribuição específica do grupo), com a 4ª ficha (apresentação e defesa).
+    await q.query('insert into evaluator_assignments (day_id, user_id, group_id, rubric_position) values ($1,$2,$3,4)', [day, users.fabio, groups['C-06']]);
     return { users, ev, day, incompleteDay, groups, entries, options };
   });
   const { users, day, groups, entries, options } = setup;
@@ -193,24 +168,24 @@ export async function seedScenarios(db: Database, opts: { date?: string; now?: n
   await timer.restart(users.ana, day, 'Projetor desligou durante a apresentação (cenário de teste).');
   advance(60);
   await present('C-01');
-  await fill('C-01', users.ana, [9, 8.5, 9, 10], 'Indicar', true);
-  await fill('C-01', users.bruno, [8, 8, 7.5, null], 'Indicar', true);
-  await fill('C-01', users.carla, [9, 10], 'Não indicar', true);
+  await fill('C-01', users.ana, [5, 4, 5, 5, 4], 'Indicar', true);
+  await fill('C-01', users.bruno, [4, 4, 3, 4, 5], 'Indicar', true);
+  await fill('C-01', users.carla, [5, 5, 4, 5, 5], 'Não indicar', true);
   await db.tx((q) => closeGroup(q, groups['C-01']!, actorAna));
 
-  // C-02: encerrado antes do tempo; Carla dispensada (ausente) e critério "Organização" dispensado para Bruno; fechado.
+  // C-02: encerrado antes do tempo; Carla dispensada (ausente) e o 3º critério (fundamentação teórica) dispensado para Bruno; fechado.
   await timer.start(users.ana, day, entries['C-02']!);
   advance(170);
   await timer.finish(users.ana, day, 'Grupo concluiu antes do tempo (cenário de teste).');
   advance(120);
-  await fill('C-02', users.ana, [7, 7.5, 8, null], 'Indicar', true);
-  await fill('C-02', users.bruno, [6.5, 7, 5, 6], 'Não indicar', true);
-  await fill('C-02', users.carla, [null, null], null, false, '');
+  await fill('C-02', users.ana, [3, 4, 4, 3, 4], 'Indicar', true);
+  await fill('C-02', users.bruno, [3, 3, 2, 3, 3], 'Não indicar', true);
+  await fill('C-02', users.carla, [null, null, null, null, null], null, false, '');
   const carla = await evalOf(groups['C-02']!, users.carla);
   const bruno = await evalOf(groups['C-02']!, users.bruno);
   await db.tx(async (q) => {
     const org = await q.one<{ id: number }>(
-      "select c.id from rubric_criteria c join evaluations e on e.rubric_version_id = c.version_id where e.id = $1 and c.title = 'Organização'",
+      "select c.id from rubric_criteria c join evaluations e on e.rubric_version_id = c.version_id where e.id = $1 and c.position = 2",
       [bruno!.id],
     );
     await q.query("insert into closure_exceptions (group_id, kind, evaluation_id, reason, created_by) values ($1, 'evaluator_absent', $2, $3, $4)", [
@@ -231,21 +206,21 @@ export async function seedScenarios(db: Database, opts: { date?: string; now?: n
 
   // C-03: fechado (v1), reaberto pelo administrador para corrigir uma nota e fechado de novo (v2).
   await present('C-03');
-  await fill('C-03', users.ana, [8, 8, 8, null], 'Indicar', true);
-  await fill('C-03', users.bruno, [3, 7, 7, null], 'Não indicar', true);
-  await fill('C-03', users.carla, [8, 8], 'Indicar', true);
+  await fill('C-03', users.ana, [4, 4, 4, 4, 4], 'Indicar', true);
+  await fill('C-03', users.bruno, [1, 3, 3, 3, 3], 'Não indicar', true);
+  await fill('C-03', users.carla, [4, 4, 4, 4, 4], 'Indicar', true);
   await db.tx((q) => closeGroup(q, groups['C-03']!, actorAna));
   await db.tx((q) => reopenGroup(q, groups['C-03']!, users.admin, 'Nota digitada errada pelo avaliador (cenário de teste).'));
-  await fill('C-03', users.ana, [8, 8, 8, null], 'Indicar', true);
-  await fill('C-03', users.bruno, [7, 7, 7, null], 'Indicar', true, 'Nota corrigida após a reabertura (cenário de teste).');
-  await fill('C-03', users.carla, [8, 8], 'Indicar', true);
+  await fill('C-03', users.ana, [4, 4, 4, 4, 4], 'Indicar', true);
+  await fill('C-03', users.bruno, [3, 3, 3, 3, 3], 'Indicar', true, 'Nota corrigida após a reabertura (cenário de teste).');
+  await fill('C-03', users.carla, [4, 4, 4, 4, 4], 'Indicar', true);
   await db.tx((q) => closeGroup(q, groups['C-03']!, actorAna));
 
   // C-04: fechado e reaberto; as fichas voltaram a rascunho e aguardam o reenvio.
   await present('C-04');
-  await fill('C-04', users.ana, [6, 6, 6, null], 'Não indicar', true);
-  await fill('C-04', users.bruno, [6.5, 6, 6, null], 'Não indicar', true);
-  await fill('C-04', users.carla, [7, 6], 'Abster-se', true);
+  await fill('C-04', users.ana, [3, 3, 3, 3, 3], 'Não indicar', true);
+  await fill('C-04', users.bruno, [3, 3, 3, 3, 4], 'Não indicar', true);
+  await fill('C-04', users.carla, [4, 3, 3, 3, 3], 'Abster-se', true);
   await db.tx((q) => closeGroup(q, groups['C-04']!, actorAna));
   await db.tx((q) => reopenGroup(q, groups['C-04']!, users.admin, 'Banca decidiu rever as notas do grupo (cenário de teste).'));
 
@@ -265,20 +240,20 @@ export async function seedScenarios(db: Database, opts: { date?: string; now?: n
   advance(301);
   await timer.tick();
   advance(120);
-  await fill('C-05', users.ana, [9, 9, 8, 7], 'Indicar', true);
-  await fill('C-05', users.bruno, [8, 8, 8, null], 'Não indicar', true);
-  await fill('C-05', users.carla, [9, 9], 'Abster-se', true);
+  await fill('C-05', users.ana, [5, 5, 4, 4, 4], 'Indicar', true);
+  await fill('C-05', users.bruno, [4, 4, 4, 4, 4], 'Não indicar', true);
+  await fill('C-05', users.carla, [5, 5, 5, 4, 5], 'Abster-se', true);
 
   // C-06: apresentado; Ana enviou, Bruno com rascunho incompleto, Carla e o avaliador extra (Fábio) sem preencher.
   await present('C-06');
-  await fill('C-06', users.ana, [7, 7, 7, null], 'Indicar', true);
-  await fill('C-06', users.bruno, [6, null, null, null], null, false);
+  await fill('C-06', users.ana, [4, 4, 4, 4, 4], 'Indicar', true);
+  await fill('C-06', users.bruno, [3, null, null, null, null], null, false);
 
   // C-07: em andamento, pausado na etapa de Apresentação; rascunho parcial da Ana.
   await timer.start(users.ana, day, entries['C-07']!);
   advance(70);
   await timer.pause(users.ana, day);
-  await fill('C-07', users.ana, [8, null, null, null], null, false);
+  await fill('C-07', users.ana, [4, null, null, null, null], null, false);
 
   await db.query("insert into audit_logs (action, entity, details) values ('seed.scenarios', 'system', $1)", [{ note: 'Banca de cenários de teste (dados fictícios)' }]);
   return { skipped: false, eventId: setup.ev, dayId: day, incompleteDayId: setup.incompleteDay, groups, entries, users };

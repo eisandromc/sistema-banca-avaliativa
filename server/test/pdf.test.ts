@@ -92,7 +92,7 @@ describe('PDF — paginação legível', () => {
     const text = pdfText(pdf).replace(/\s+/g, ' ');
     for (let i = 1; i <= 40; i++) expect(text).toContain(`FIM-${i}`);
     expect(text).toContain('FIM-GERAL');
-    expect(text).toContain(`Página ${pages} de ${pages}`);
+    expect(text).toContain(`Página ${pages}`); // a capa não tem rodapé; cada projeto numera as próprias páginas
     expect(text).toContain('75,00 / 100');
   });
 });

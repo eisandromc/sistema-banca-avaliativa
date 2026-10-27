@@ -22,6 +22,7 @@ test('administrador configura uma banca nova pela interface e o primário a cond
   await page.goto('/configuracao');
 
   // O menu segue a ordem de preenchimento.
+  await expect(page.locator('.cfg-nav .tab-trigger').nth(8)).toBeVisible();
   const steps = await page.locator('.cfg-nav .tab-trigger').allInnerTexts();
   expect(steps.slice(1, 9).map((s) => s.replace(/\s+/g, ' ').trim())).toEqual([
     '1 Professores',
@@ -51,6 +52,8 @@ test('administrador configura uma banca nova pela interface e o primário a cond
   await dlg.getByRole('textbox', { name: 'Nome', exact: true }).fill('Curto 8 + 4');
   await dlg.getByLabel('Minutos da etapa 1').fill('8');
   await dlg.getByLabel('Minutos da etapa 2').fill('4');
+  // O perfil novo vem com 4 etapas (a 3ª é a pausa de preparação): ficam só as duas primeiras.
+  await dlg.getByRole('button', { name: 'Remover etapa 4' }).click();
   await dlg.getByRole('button', { name: 'Remover etapa 3' }).click();
   await expect(dlg.getByText('Total: 12:00')).toBeVisible();
   await dlg.getByRole('button', { name: 'Salvar perfil' }).click();
@@ -149,19 +152,19 @@ test('administrador configura uma banca nova pela interface e o primário a cond
   await page.getByRole('button', { name: 'Subir E2E-1' }).click();
   await expect(diaCol.locator('.board-card').first()).toContainText('E2E-1');
 
-  // 7. Primário e avaliadores do dia (rubricas do tipo da banca primeiro)
+  // 7. Primário e avaliadores do dia: só a ficha do tipo de rubrica da banca
   await tab(page, 'Primário e avaliadores');
   await expect(page.getByText('Nenhum primário designado')).toBeVisible();
   await page.getByRole('button', { name: 'Designar primário' }).click();
   dlg = page.getByRole('dialog');
   await dlg.getByLabel('Docente').selectOption({ label: 'Prof. Novo E2E (fictício)' });
-  await dlg.getByLabel('Rubrica com que ele vai avaliar').selectOption({ label: '1. Rubrica E2E Técnica' });
+  await dlg.getByLabel('Ficha que ele vai preencher').selectOption({ label: '1ª ficha — Avaliação — Rubrica E2E Técnica' });
   await dlg.getByRole('button', { name: 'Salvar' }).click();
   await expect(page.getByText('Professor primário designado')).toBeVisible();
-  await expect(page.locator('.step-card', { hasText: 'Professor primário' })).toContainText('Também avalia com: 1. Rubrica E2E Técnica');
+  await expect(page.locator('.step-card', { hasText: 'Professor primário' })).toContainText('Também preenche a 1ª ficha — Avaliação — Rubrica E2E Técnica');
   await expect(page.getByRole('row', { name: /Prof\. Novo E2E/ })).toContainText('primário');
   await page.getByLabel('Docente', { exact: true }).selectOption({ label: 'Prof. Bruno Modelo (Demo)' });
-  await page.getByLabel('Rubrica', { exact: true }).selectOption({ label: '2. Rubrica E2E Apresentação' });
+  await page.getByLabel('Ficha', { exact: true }).selectOption({ label: '2ª ficha — Avaliação — Rubrica E2E Apresentação' });
   await page.getByRole('button', { name: 'Adicionar' }).click();
   await expect(page.getByRole('row', { name: /Prof\. Bruno Modelo/ })).toBeVisible();
 

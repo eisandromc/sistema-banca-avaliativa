@@ -100,7 +100,7 @@ export interface VoteQuestionDef {
 
 export async function loadVoteQuestions(q: Queryable, eventId: number, enabledOnly = true): Promise<VoteQuestionDef[]> {
   const qs = await q.query<any>(
-    `select * from vote_questions where event_id = $1 ${enabledOnly ? 'and enabled' : ''} order by position, id`,
+    `select * from vote_questions where event_id = $1 and deleted_at is null ${enabledOnly ? 'and enabled' : ''} order by position, id`,
     [eventId],
   );
   const opts = qs.length

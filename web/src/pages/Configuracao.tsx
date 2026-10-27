@@ -17,6 +17,7 @@ import { MonitorTab } from './config/Monitor.tsx';
 import { ClosureTab } from './config/Closure.tsx';
 import { ReportsTab } from './config/Reports.tsx';
 import { AuditTab } from './config/Audit.tsx';
+import { TrashTab } from './config/Trash.tsx';
 
 export interface EventData {
   id: number;
@@ -32,6 +33,8 @@ export interface EventData {
   publicDisplay: boolean;
   warnPct: number;
   dangerPct: number;
+  stageAlertBeforeSeconds: number;
+  stageAlertAfterSeconds: number;
   editAfterSubmit: 'locked' | 'until_closure';
   votePrivacy: 'nominal' | 'anonymous';
   institutionDetail: string | null;
@@ -53,7 +56,7 @@ export interface EventData {
     gapMinutes: number;
     defaultProfileId: number | null;
     primaryUserId: number | null;
-    primaryRubricVersionId: number | null;
+    primaryRubricPosition: number | null;
     breaks: Array<{ id: number; label: string; start: string; end: string }>;
   }>;
 }
@@ -65,9 +68,9 @@ interface ConfigCtxValue {
   setEventId: (id: number | null) => void;
   dayId: number | null;
   setDayId: (id: number | null) => void;
-  profiles: Array<{ id: number; name: string; active: boolean; stages: any[]; totalSeconds: number; usage: number }>;
+  profiles: Array<{ id: number; name: string; active: boolean; stages: any[]; totalSeconds: number; usage: number; deleted?: boolean }>;
   reloadProfiles: () => Promise<void>;
-  users: Array<{ id: number; name: string; email: string; role: string; active: boolean; days?: Array<{ id: number; label: string; date: string; eventName: string }> }>;
+  users: Array<{ id: number; name: string; email: string; role: string; active: boolean; deleted?: boolean; days?: Array<{ id: number; label: string; date: string; eventName: string }> }>;
   reloadUsers: () => Promise<void>;
   /** Abre outra seção da Configuração (ex.: a partir do roteiro de preparação). */
   goTo: (tab: string) => void;
@@ -113,7 +116,7 @@ const SECTIONS: Array<{ label: string; hint?: string; tabs: TabDef[] }> = [
       { id: 'bancas', step: 4, label: 'Banca e dias', description: 'Dados da banca, o tipo de rubrica que ela usa, os dias (data, horário, sala, perfil de tempo) e o documento PDF.' },
       { id: 'grupos', step: 5, label: 'Grupos', description: 'Cada grupo com título, resumo, alunos, orientadores, materiais (PDF, apresentação, link) e cor de identificação.' },
       { id: 'distribuicao', step: 6, label: 'Distribuição nos dias', description: 'Arraste os grupos para o dia em que se apresentam e defina a ordem. Os horários previstos são calculados sozinhos.' },
-      { id: 'avaliadores', step: 7, label: 'Primário e avaliadores', description: 'Em cada dia: quem conduz a banca (professor primário) e quem avalia, com qual rubrica do tipo da banca.' },
+      { id: 'avaliadores', step: 7, label: 'Primário e avaliadores', description: 'Em cada dia: quem conduz a banca (professor primário) e quem avalia, com qual ficha do tipo de rubrica da banca.' },
       { id: 'votacao', step: 8, label: 'Votação (opcional)', description: 'Perguntas votadas pelos avaliadores junto com a ficha (ex.: indicação para a feira).' },
     ],
   },
@@ -130,7 +133,14 @@ const SECTIONS: Array<{ label: string; hint?: string; tabs: TabDef[] }> = [
   },
   {
     label: 'Sistema',
-    tabs: [{ id: 'auditoria', label: 'Auditoria', description: 'Registro de todas as ações administrativas e da condução das bancas.' }],
+    tabs: [
+      { id: 'auditoria', label: 'Auditoria', description: 'Registro de todas as ações administrativas e da condução das bancas.' },
+      {
+        id: 'lixeira',
+        label: 'Lixeira',
+        description: 'Tudo o que foi excluído vem para cá. Restaure para voltar a usar o item ou elimine definitivamente (não há como recuperar depois).',
+      },
+    ],
   },
 ];
 const ALL_TABS = SECTIONS.flatMap((s) => s.tabs.map((t) => ({ ...t, section: s.label })));
@@ -152,6 +162,7 @@ const PANELS: Record<string, () => React.ReactNode> = {
   fechamento: () => <ClosureTab />,
   relatorios: () => <ReportsTab />,
   auditoria: () => <AuditTab />,
+  lixeira: () => <TrashTab />,
 };
 
 function remembered(key: string): string | null {

@@ -13,8 +13,19 @@ import {
 import { errorMessage } from '../lib/api.ts';
 import type { EntryStatus } from '../lib/types.ts';
 
+/** Item excluído (na lixeira) que ainda aparece por estar vinculado a outro: sempre taxado e em vermelho. */
+export function Struck({ deleted, children }: { deleted?: boolean; children: ReactNode }) {
+  if (!deleted) return <>{children}</>;
+  return (
+    <span className="struck" title="Item excluído (está na lixeira)">
+      {children}
+    </span>
+  );
+}
+
 // ---------- Botão ----------
-type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
+/** `create` (verde), `edit` (azul) e `delete` (vermelho): criar, editar e excluir têm sempre a mesma cor. */
+type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success' | 'create' | 'edit' | 'delete';
 
 export function Button({
   variant = 'secondary',

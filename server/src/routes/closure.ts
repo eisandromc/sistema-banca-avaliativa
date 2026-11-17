@@ -10,7 +10,7 @@ import { ensureEvaluations } from '../services/evaluations.ts';
 export async function closureRoutes(app: FastifyInstance) {
   const { db, hub, config } = app.ctx;
 
-  /** Conferência/fechamento/PDF: somente administrador ou professor primário do dia do grupo. */
+  /** Conferência/fechamento/PDF: somente administrador ou Presidente da Banca do dia do grupo. */
   async function requireGroupController(req: FastifyRequest, groupId: number) {
     const user = requireUser(req);
     const entry = await db.one<{ day_id: number }>('select day_id from schedule_entries where group_id = $1', [groupId]);
@@ -19,7 +19,7 @@ export async function closureRoutes(app: FastifyInstance) {
       throw notFound('Grupo não está no cronograma.');
     }
     const access = await getDayAccess(db, user, entry.day_id);
-    if (!access.canControl) throw forbidden('Somente o professor primário do dia ou um administrador pode conferir e fechar avaliações.');
+    if (!access.canControl) throw forbidden('Somente o Presidente da Banca do dia ou um administrador pode conferir e fechar avaliações.');
     return { user, dayId: entry.day_id, isAdmin: access.isAdmin };
   }
 
@@ -35,7 +35,7 @@ export async function closureRoutes(app: FastifyInstance) {
     return { consolidation, reviewToken: consolidationToken(consolidation), closed: open ? (open.snapshot as ClosureSnapshot) : null, history, isAdmin };
   });
 
-  /** Parecer da banca (opções configuradas na banca) e textos consolidados: primário ou administrador. */
+  /** Parecer da banca (opções configuradas na banca) e textos consolidados: Presidente da Banca ou administrador. */
   app.put('/groups/:id/verdict', async (req) => {
     const groupId = paramId(req);
     const { user, dayId } = await requireGroupController(req, groupId);

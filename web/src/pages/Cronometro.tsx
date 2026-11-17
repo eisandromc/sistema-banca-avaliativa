@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth.tsx';
 import { CONNECTION_LABEL, countdownLeft, useDayChannel, useDisplayDay, useTimerView } from '../lib/realtime.ts';
-import { audioReady, playApplause, unlockAudio } from '../lib/applause.ts';
+import { audioReady, playApplause, stopApplause, unlockAudio } from '../lib/applause.ts';
+import { applauseDue } from '@shared/timer.ts';
 import { TimerDisplay, WaitingScreen } from '../components/TimerDisplay.tsx';
 import { TimerControls } from '../components/TimerControls.tsx';
 import { Alert, Button, Spinner } from '../components/ui.tsx';
@@ -56,10 +57,11 @@ function readPref(key: string, def: boolean): boolean {
 }
 
 /**
- * Palmas quando o tempo total estoura (TEMPO ENCERRADO). Toca só na transição, com a página aberta;
- * encerrar antes do tempo não toca. O navegador exige um clique/tecla para liberar o áudio.
+ * Palmas (30 s) quando o relógio da Demonstração zera — ou, sem etapa de demonstração, no TEMPO ENCERRADO.
+ * Toca só na transição, com a página aberta; encerrar antes não toca. O navegador exige um clique/tecla
+ * para liberar o áudio.
  */
-function useApplause(timeUp: boolean) {
+function useApplause(due: boolean) {
   const [enabled, setEnabled] = useState(() => readPref('banca.applause', true));
   const [ready, setReady] = useState(() => audioReady());
   const prev = useRef<boolean | null>(null);
@@ -73,9 +75,9 @@ function useApplause(timeUp: boolean) {
     };
   }, []);
   useEffect(() => {
-    if (prev.current === false && timeUp && enabled) playApplause();
-    prev.current = timeUp;
-  }, [timeUp, enabled]);
+    if (prev.current === false && due && enabled) playApplause();
+    prev.current = due;
+  }, [due, enabled]);
   const toggle = (v: boolean) => {
     setEnabled(v);
     try {
@@ -84,6 +86,7 @@ function useApplause(timeUp: boolean) {
       /* sem armazenamento */
     }
     if (v) void unlockAudio().then(setReady);
+    else stopApplause();
   };
   return { enabled, ready, toggle };
 }
@@ -110,7 +113,7 @@ function useIdle(ms = 3000) {
 
 /**
  * Área 1 — Cronômetro para projeção (sem notas ou comentários).
- * Não há seleção de dia ou de grupo: o telão segue sozinho o dia ativado pelo professor primário
+ * Não há seleção de dia ou de grupo: o telão segue sozinho o dia ativado pelo Presidente da Banca
  * e mostra o grupo somente quando a apresentação é iniciada; antes disso, "Aguardando".
  */
 export function CronometroPage() {
@@ -129,7 +132,7 @@ function Projection({ dayId, restricted }: { dayId: number | null; restricted: b
   const stageRef = useRef<HTMLDivElement>(null);
   const idle = useIdle();
   const canControl = !!user && !!dayId && (user.role === 'admin' || primaryDayIds.includes(dayId));
-  const applause = useApplause(!!view?.timeUp && !!live?.timer);
+  const applause = useApplause(!!live?.timer && !!view && applauseDue(live.timer.stages, view.elapsedMs, live.timer.status));
   const countdown = countdownLeft(live, receivedAt);
 
   return (
@@ -172,7 +175,7 @@ function Projection({ dayId, restricted }: { dayId: number | null; restricted: b
           note={
             restricted
               ? 'A banca em andamento não tem exibição pública. Entre com a conta do telão.'
-              : 'Nenhuma banca ativa no telão. A exibição começa quando o professor primário ativar o dia.'
+              : 'Nenhuma banca ativa no telão. A exibição começa quando o Presidente da Banca ativar o dia.'
           }
         />
       ) : !live ? (

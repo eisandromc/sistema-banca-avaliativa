@@ -33,7 +33,7 @@ export async function liveRoutes(app: FastifyInstance) {
   const { db, timer, hub } = app.ctx;
 
   /**
-   * Telão: qual dia exibir. Sem seleção na tela — o professor primário ativa o dia.
+   * Telão: qual dia exibir. Sem seleção na tela — o Presidente da Banca ativa o dia.
    * Sem login, só aparece se a banca permite exibição pública.
    */
   app.get('/public/display', async (req) => {
@@ -43,7 +43,7 @@ export async function liveRoutes(app: FastifyInstance) {
     return { display: d, restricted: false };
   });
 
-  /** Ativa/desativa o dia no telão: professor primário do dia ou administrador. */
+  /** Ativa/desativa o dia no telão: Presidente da Banca do dia ou administrador. */
   app.post('/days/:id/display', async (req) => {
     const dayId = paramId(req);
     const { user } = await requireDayController(db, req, dayId);

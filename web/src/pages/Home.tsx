@@ -24,7 +24,7 @@ const ACCESSES: Access[] = [
   {
     to: '/professor',
     title: 'Professor',
-    text: 'Avaliar os grupos do dia e, para o professor primário, conduzir o tempo e fechar as avaliações.',
+    text: 'Avaliar os grupos do dia e, para o Presidente da Banca, conduzir o tempo e fechar as avaliações.',
     audience: 'Professores',
     icon: <IconClipboard size={28} />,
     needsLogin: true,

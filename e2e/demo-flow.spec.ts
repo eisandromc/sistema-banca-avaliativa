@@ -2,10 +2,10 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
 
 /**
  * Fluxo obrigatório de demonstração (dados fictícios do seed):
- * primária ativa o dia no telão → telão (sem seleção) mostra "Aguardando" → seleciona o Grupo 01 (telão segue
+ * Presidente da Banca ativa o dia no telão → telão (sem seleção) mostra "Aguardando" → seleciona o Grupo 01 (telão segue
  * "Aguardando") e inicia → telão e docentes sincronizam e as fichas abrem sem recarregar →
  * etapas mudam (10 → 5 → 5 min, acelerado 60x) → TEMPO ENCERRADO → docentes avaliam, votam e enviam →
- * primária confere, fecha e baixa o PDF → passa ao Grupo 02 sem perder o Grupo 01.
+ * Presidente da Banca confere, fecha e baixa o PDF → passa ao Grupo 02 sem perder o Grupo 01.
  */
 
 async function login(browser: Browser, email: string, path: string): Promise<Page> {
@@ -45,16 +45,16 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
   const telaoCtx = await browser.newContext();
   const telao = await telaoCtx.newPage();
 
-  // Telão (sem login): não há seleção de dia nem de grupo; segue o dia ativado pela primária.
+  // Telão (sem login): não há seleção de dia nem de grupo; segue o dia ativado pela Presidente da Banca.
   await telao.goto('/cronometro');
   await expect(telao.getByRole('button', { name: /Trocar dia/ })).toHaveCount(0);
-  await expect(ana.getByText('Você é o(a) professor(a) primário(a)')).toBeVisible();
+  await expect(ana.getByText('Você é o(a) Presidente da Banca')).toBeVisible();
   await ana.getByRole('button', { name: /Ativar no telão|Trazer este dia para o telão/ }).click();
   await expect(ana.getByText('● Exibindo este dia')).toBeVisible();
   await expect(telao.getByRole('heading', { name: 'Aguardando' })).toBeVisible();
   await expect(telao.getByText(/Banca de Projetos — DEMONSTRAÇÃO · Dia 1/).first()).toBeAttached();
 
-  // Primária seleciona o Grupo 01 → o telão continua em "Aguardando" até a apresentação ser iniciada.
+  // Presidente da Banca seleciona o Grupo 01 → o telão continua em "Aguardando" até a apresentação ser iniciada.
   await ana.locator('.sched-item', { hasText: 'Grupo 01' }).getByRole('button', { name: 'Selecionar' }).click();
   await expect(ana.locator('#grupo-atual')).toBeVisible();
   await expect(ana.locator('.current-group')).toContainText('Grupo 01');
@@ -63,7 +63,7 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
 
   // Avaliador comum não vê controles: aguarda com a lista do dia em ordem (#, hora programada e cor do grupo).
   await expect(bruno.getByRole('button', { name: /Iniciar apresentação/ })).toHaveCount(0);
-  await expect(bruno.getByRole('heading', { name: 'Aguardando o professor primário' })).toBeVisible();
+  await expect(bruno.getByRole('heading', { name: 'Aguardando o Presidente da Banca' })).toBeVisible();
   await expect(bruno.getByText('Próximo a se apresentar:')).toBeVisible();
   await expect(bruno.locator('.order-row').first()).toContainText('#1');
   await expect(bruno.locator('.order-row').first()).toContainText('Grupo 01');
@@ -108,17 +108,19 @@ test('fluxo completo da banca de demonstração', async ({ browser }) => {
 
   // Etapas: Apresentação (10 min) → Demonstração (5) → Perguntas (5). Acelerado 60x.
   await expect(telao.locator('.clock-stage .clock-label')).toContainText('Demonstração', { timeout: 20_000 });
+  expect(await telao.evaluate(() => (window as any).__bancaApplausePlays ?? 0)).toBe(0);
   await expect(telao.locator('.clock-stage .clock-label')).toContainText('Perguntas e considerações', { timeout: 20_000 });
+  // O relógio da Demonstração zerou: o telão dispara as palmas (uma vez só, mesmo depois do TEMPO ENCERRADO).
+  await expect.poll(() => telao.evaluate(() => (window as any).__bancaApplausePlays ?? 0)).toBe(1);
   await expect(telao.getByText('TEMPO ENCERRADO').first()).toBeVisible({ timeout: 20_000 });
-  // Estouro do tempo: o telão dispara o som de palmas.
-  await expect.poll(() => telao.evaluate(() => (window as any).__bancaApplausePlays ?? 0)).toBeGreaterThanOrEqual(1);
+  expect(await telao.evaluate(() => (window as any).__bancaApplausePlays ?? 0)).toBe(1);
 
   // Docentes avaliam (nota zero é válida), votam e enviam.
   await fillEvaluation(ana, [4, 5, 4, 3, 5], 'Devolutiva técnica', 'Indicar');
   await fillEvaluation(bruno, [0, 3, 3, 3, 3], 'Devolutiva sobre o artigo e a pesquisa', 'Não indicar');
   await fillEvaluation(carla, [5, 4, 4, 4, 5], 'Devolutiva sobre o desenvolvimento do Projeto Integrador', 'Indicar');
 
-  // Primária confere e fecha.
+  // Presidente da Banca confere e fecha.
   await ana.getByRole('button', { name: 'Conferir e fechar avaliação' }).first().click();
   const dialog = ana.getByRole('dialog');
   // Média das pontuações (0–100): Ana 21/25 = 84, Bruno 12/25 = 48, Carla 22/25 = 88 → 73,33.

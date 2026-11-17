@@ -104,10 +104,10 @@ export async function eventReadiness(q: Queryable, eventId: number): Promise<Eve
     const primary = d.primary_user_id ? await q.one<any>('select name, (active and deleted_at is null) as active, role from users where id = $1', [d.primary_user_id]) : null;
     dc.push(
       !primary
-        ? { key: 'primary', label: 'Professor primário', status: 'todo', detail: 'Designe quem conduz o tempo e o fechamento.', tab: 'avaliadores' }
+        ? { key: 'primary', label: 'Presidente da Banca', status: 'todo', detail: 'Designe quem conduz o tempo e o fechamento.', tab: 'avaliadores' }
         : !primary.active || primary.role !== 'teacher'
-          ? { key: 'primary', label: 'Professor primário', status: 'todo', detail: `${primary.name} está inativo(a) ou não é docente.`, tab: 'avaliadores' }
-          : { key: 'primary', label: 'Professor primário', status: 'ok', detail: primary.name, tab: 'avaliadores' },
+          ? { key: 'primary', label: 'Presidente da Banca', status: 'todo', detail: `${primary.name} está inativo(a) ou não é docente.`, tab: 'avaliadores' }
+          : { key: 'primary', label: 'Presidente da Banca', status: 'ok', detail: primary.name, tab: 'avaliadores' },
     );
     dc.push(
       sched.entries.length

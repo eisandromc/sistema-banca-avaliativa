@@ -42,6 +42,8 @@ export function EventsTab() {
   const { events, event, setEventId, reloadEvents, goTo } = useConfig();
   const [editing, setEditing] = useState<null | 'new' | EventData>(null);
   const [delOpen, setDelOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupGroups, setDupGroups] = useState(false);
   const rub = useRubrics();
   const toast = useToast();
   const typeRow = event?.rubricTypeId ? rub.data?.types.find((t) => t.id === event.rubricTypeId) : null;
@@ -63,6 +65,15 @@ export function EventsTab() {
               <div className="row gap wrap">
                 <Button variant="edit" onClick={() => setEditing(event)}>
                   Editar banca
+                </Button>
+                <Button
+                  variant="create"
+                  onClick={() => {
+                    setDupGroups(false);
+                    setDupOpen(true);
+                  }}
+                >
+                  Duplicar
                 </Button>
                 <Button variant="delete" onClick={() => setDelOpen(true)}>
                   Excluir
@@ -152,6 +163,29 @@ export function EventsTab() {
             setEditing(null);
           }}
         />
+      )}
+      {event && (
+        <ConfirmDialog
+          open={dupOpen}
+          onOpenChange={setDupOpen}
+          title={`Duplicar "${event.name}"?`}
+          description="Cria uma nova banca, chamada “(cópia)”, com os dados e regras da banca, o logotipo, o tipo de rubrica, os dias com intervalos, o Presidente da Banca, a escala de avaliadores e as perguntas de votação. Nada do andamento é copiado: cronômetro, avaliações, votos e fechamentos."
+          variant="create"
+          confirmLabel="Duplicar banca"
+          onConfirm={async () => {
+            const r = await api.post<{ id: number; days: number; groups: number }>(`/api/events/${event.id}/duplicate`, { includeGroups: dupGroups });
+            await reloadEvents();
+            setEventId(r.id);
+            toast.push({ kind: 'success', text: `Banca duplicada (${r.days} dia(s)${dupGroups ? `, ${r.groups} grupo(s)` : ''}). Ajuste as datas e o nome, se precisar.` });
+          }}
+        >
+          <Checkbox
+            label="Copiar também os grupos"
+            checked={dupGroups}
+            onChange={setDupGroups}
+            hint="alunos, orientadores, links, arquivos, a distribuição nos dias e as fichas de cada grupo"
+          />
+        </ConfirmDialog>
       )}
       {event && (
         <ConfirmDialog
@@ -418,6 +452,9 @@ type DayForm = {
 function DaysSection({ event }: { event: EventData }) {
   const { profiles, users, reloadEvents, setDayId, goTo } = useConfig();
   const [editing, setEditing] = useState<null | 'new' | EventData['days'][number]>(null);
+  const [dup, setDup] = useState<null | EventData['days'][number]>(null);
+  const [dupDate, setDupDate] = useState('');
+  const toast = useToast();
   return (
     <section className="card step-card" aria-labelledby="dias-banca">
       <div className="card-title">
@@ -445,7 +482,7 @@ function DaysSection({ event }: { event: EventData }) {
                   ) : (
                     <span className="warn-text">não definido</span>
                   )}{' '}
-                  · Primário:{' '}
+                  · Presidente da Banca:{' '}
                   {d.primaryUserId ? (
                     (users.find((u) => u.id === d.primaryUserId)?.name ?? '—')
                   ) : (
@@ -458,6 +495,17 @@ function DaysSection({ event }: { event: EventData }) {
               <div className="row-actions">
                 <Button variant="edit" className="btn-sm" onClick={() => (setDayId(d.id), setEditing(d))} aria-label={`Editar ${dayLabel(d)}`}>
                   Editar
+                </Button>
+                <Button
+                  variant="create"
+                  className="btn-sm"
+                  aria-label={`Duplicar ${dayLabel(d)}`}
+                  onClick={() => {
+                    setDupDate(d.date);
+                    setDup(d);
+                  }}
+                >
+                  Duplicar
                 </Button>
                 <ActionButton
                   variant="delete"
@@ -475,6 +523,26 @@ function DaysSection({ event }: { event: EventData }) {
             </li>
           ))}
         </ul>
+      )}
+      {dup && (
+        <ConfirmDialog
+          open
+          onOpenChange={(v) => !v && setDup(null)}
+          title={`Duplicar ${dayLabel(dup)}?`}
+          description="Cria um novo dia nesta banca com os mesmos horários, intervalos, sala, perfil de tempo, Presidente da Banca e escala de avaliadores. Os grupos não vão junto: cada grupo se apresenta uma única vez."
+          variant="create"
+          confirmLabel="Duplicar dia"
+          onConfirm={async () => {
+            const r = await api.post<{ id: number }>(`/api/days/${dup.id}/duplicate`, { date: dupDate || undefined });
+            await reloadEvents();
+            setDayId(r.id);
+            toast.push({ kind: 'success', text: 'Dia duplicado. Distribua os grupos nele na etapa 6.' });
+          }}
+        >
+          <Field label="Data do novo dia" required>
+            {(p) => <input {...p} type="date" value={dupDate} onChange={(e) => setDupDate(e.target.value)} />}
+          </Field>
+        </ConfirmDialog>
       )}
       {editing && (
         <DayDialog

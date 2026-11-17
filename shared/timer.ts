@@ -161,3 +161,21 @@ export const STATUS_LABEL: Record<TimerStatus, string> = {
   ended: 'Encerrado',
   stopped: 'Encerrado',
 };
+
+/** Etapa de demonstração do perfil (nome com "demonstra", sem acento/caixa); -1 se não houver. */
+export function demoStageIndex(stages: Stage[]): number {
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return stages.findIndex((s) => !s.pause && norm(s.name).includes('demonstra'));
+}
+
+/**
+ * Momento das palmas no telão: o zero da etapa de demonstração (fim dela) ou, se o perfil não tiver
+ * demonstração, o fim do tempo total. Retorna true a partir desse instante (com o cronômetro em uso).
+ */
+export function applauseDue(stages: Stage[], elapsedMs: number, status: TimerStatus): boolean {
+  const totalMs = totalDurationMs(stages);
+  if (status === 'idle' || totalMs <= 0) return false;
+  const demo = demoStageIndex(stages);
+  const target = demo >= 0 ? stageStartMs(stages, demo + 1) : totalMs;
+  return Math.min(elapsedMs, totalMs) >= target;
+}

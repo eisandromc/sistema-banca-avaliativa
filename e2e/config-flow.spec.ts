@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Monta uma banca do zero apenas pela interface da Configuração, seguindo as etapas na ordem do menu
- * (cadastros base → banca → grupos → distribuição → primário e avaliadores), e a coloca em uso.
+ * (cadastros base → banca → grupos → distribuição → Presidente da Banca e avaliadores), e a coloca em uso.
  */
 
 async function login(page: Page, email: string, password = 'demo1234') {
@@ -17,7 +17,7 @@ async function tab(page: Page, name: string) {
   await page.getByRole('tab', { name }).click();
 }
 
-test('administrador configura uma banca nova pela interface e o primário a conduz', async ({ page, browser }) => {
+test('administrador configura uma banca nova pela interface e o Presidente da Banca a conduz', async ({ page, browser }) => {
   await login(page, 'admin@demo.banca');
   await page.goto('/configuracao');
 
@@ -31,7 +31,7 @@ test('administrador configura uma banca nova pela interface e o primário a cond
     '4 Banca e dias',
     '5 Grupos',
     '6 Distribuição nos dias',
-    '7 Primário e avaliadores',
+    '7 Presidente da Banca e avaliadores',
     '8 Votação (opcional)',
   ]);
 
@@ -152,17 +152,17 @@ test('administrador configura uma banca nova pela interface e o primário a cond
   await page.getByRole('button', { name: 'Subir E2E-1' }).click();
   await expect(diaCol.locator('.board-card').first()).toContainText('E2E-1');
 
-  // 7. Primário e avaliadores do dia: só a ficha do tipo de rubrica da banca
-  await tab(page, 'Primário e avaliadores');
-  await expect(page.getByText('Nenhum primário designado')).toBeVisible();
-  await page.getByRole('button', { name: 'Designar primário' }).click();
+  // 7. Presidente da Banca e avaliadores do dia: só a ficha do tipo de rubrica da banca
+  await tab(page, 'Presidente da Banca e avaliadores');
+  await expect(page.getByText('Nenhum Presidente da Banca designado')).toBeVisible();
+  await page.getByRole('button', { name: 'Designar Presidente da Banca' }).click();
   dlg = page.getByRole('dialog');
   await dlg.getByLabel('Docente').selectOption({ label: 'Prof. Novo E2E (fictício)' });
   await dlg.getByLabel('Ficha que ele vai preencher').selectOption({ label: '1ª ficha — Avaliação — Rubrica E2E Técnica' });
   await dlg.getByRole('button', { name: 'Salvar' }).click();
-  await expect(page.getByText('Professor primário designado')).toBeVisible();
-  await expect(page.locator('.step-card', { hasText: 'Professor primário' })).toContainText('Também preenche a 1ª ficha — Avaliação — Rubrica E2E Técnica');
-  await expect(page.getByRole('row', { name: /Prof\. Novo E2E/ })).toContainText('primário');
+  await expect(page.getByText('Presidente da Banca designado')).toBeVisible();
+  await expect(page.locator('.step-card', { hasText: 'Presidente da Banca' })).toContainText('Também preenche a 1ª ficha — Avaliação — Rubrica E2E Técnica');
+  await expect(page.getByRole('row', { name: /Prof\. Novo E2E/ })).toContainText('Presidente da Banca');
   await page.getByLabel('Docente', { exact: true }).selectOption({ label: 'Prof. Bruno Modelo (Demo)' });
   await page.getByLabel('Ficha', { exact: true }).selectOption({ label: '2ª ficha — Avaliação — Rubrica E2E Apresentação' });
   await page.getByRole('button', { name: 'Adicionar' }).click();
@@ -181,13 +181,13 @@ test('administrador configura uma banca nova pela interface e o primário a cond
   await tab(page, 'Visão geral');
   await expect(page.getByText('✓ Banca pronta para começar')).toBeVisible();
 
-  // O avaliador (Bruno) entra antes do primário: aguarda com a lista do dia em ordem e lê o projeto.
+  // O avaliador (Bruno) entra antes do Presidente da Banca: aguarda com a lista do dia em ordem e lê o projeto.
   const bctx = await browser.newContext();
   const bruno = await bctx.newPage();
   await login(bruno, 'bruno@demo.banca');
   await bruno.goto('/professor');
   await bruno.getByRole('button', { name: /Banca Config E2E \(fictícia\) · Dia E2E/ }).click();
-  await expect(bruno.getByRole('heading', { name: 'Aguardando o professor primário' })).toBeVisible();
+  await expect(bruno.getByRole('heading', { name: 'Aguardando o Presidente da Banca' })).toBeVisible();
   await expect(bruno.locator('.order-row').first()).toContainText('E2E-1');
   await expect(bruno.locator('.order-row').first()).toContainText('07:30');
   await expect(bruno.locator('.order-row').nth(1)).toContainText('07:47');
@@ -206,7 +206,7 @@ test('administrador configura uma banca nova pela interface e o primário a cond
   const prof = await ctx.newPage();
   await login(prof, 'novo.e2e@demo.banca', 'senha-e2e-123');
   await prof.goto('/professor'); // único dia do docente: abre direto
-  await expect(prof.getByText('Você é o(a) professor(a) primário(a)')).toBeVisible();
+  await expect(prof.getByText('Você é o(a) Presidente da Banca')).toBeVisible();
   await prof.locator('.sched-item', { hasText: 'E2E-1' }).getByRole('button', { name: 'Selecionar' }).click();
   await expect(prof.locator('.current-group')).toContainText('Orientadores: Profa. Orientadora E2E e Prof. Coorientador E2E');
   await expect(prof.getByRole('timer', { name: /Tempo total restante 12:00/ })).toBeVisible();

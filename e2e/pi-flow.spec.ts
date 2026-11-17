@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 /**
  * Banca do Projeto Integrador (seed fictício): 4 professores avaliam com a escala 0–5 por botões de nível,
- * escrevem a devolutiva; a primária registra o parecer da banca, fecha e baixa o PDF no formato do instrumento.
+ * escrevem a devolutiva; a Presidente da Banca registra o parecer da banca, fecha e baixa o PDF no formato do instrumento.
  */
 
 const PI_DAY1 = /Banca do Projeto Integrador — DEMONSTRAÇÃO · Dia 1/;
@@ -65,7 +65,7 @@ test('banca do Projeto Integrador: escala 0–5, soma /100, parecer e PDF preenc
   await ana.locator('.sched-item', { hasText: 'PI-01' }).getByRole('button', { name: 'Selecionar' }).click();
   await ana.getByRole('button', { name: /Iniciar apresentação/ }).click();
 
-  // Cada professor recebe a rubrica da sua dimensão (a primária também avalia).
+  // Cada professor recebe a rubrica da sua dimensão (a Presidente da Banca também avalia).
   await expect(ana.getByText('Avaliador - Conteúdo Técnico')).toBeVisible();
   await expect(bruno.getByText('Avaliador - Artigo e Pesquisa')).toBeVisible();
   await expect(carla.getByText('Avaliador - Projeto Integrador')).toBeVisible();
@@ -76,7 +76,7 @@ test('banca do Projeto Integrador: escala 0–5, soma /100, parecer e PDF preenc
   await evaluate(bruno, [4, 4, 3, 4, 4], 'Devolutiva sobre o artigo e a pesquisa', 'Ampliar a fundamentação teórica.');
   await evaluate(carla, [3, 4, 4, 3, 4], 'Devolutiva sobre o desenvolvimento do Projeto Integrador', 'Relacionar melhor aos ODS.');
   await evaluate(daniel, [5, 4, 4, 4, 5], 'Devolutiva sobre a apresentação e a defesa', 'Distribuir melhor as falas.');
-  await expect(ana.getByText('Subtotal: 22 / 25')).toBeVisible();
+  await expect(ana.locator('.subtotal-line')).toHaveText('Subtotal do avaliador: 22 / 25');
 
   // O fechamento só é permitido com a apresentação encerrada (aqui, pelo fim do tempo; cronômetro 60x).
   await expect(ana.getByText('TEMPO ENCERRADO').first()).toBeVisible({ timeout: 40_000 });

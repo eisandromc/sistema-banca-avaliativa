@@ -93,3 +93,35 @@ export function isGithubLink(url: string): boolean {
     return false;
   }
 }
+
+/** Resumo do que o grupo já cadastrou (informações, arquivos e links). */
+export interface GroupMaterials {
+  summary: boolean;
+  advisors: boolean;
+  students: boolean;
+  github: boolean;
+  article: boolean;
+  slides: boolean;
+  viewLink: boolean;
+}
+
+export interface MaterialItem {
+  key: keyof GroupMaterials;
+  label: string;
+  present: boolean;
+  /** O que fazer quando falta. */
+  missingHint: string;
+}
+
+/** Itens na ordem exibida no indicador do card. */
+export function materialItems(m: GroupMaterials): MaterialItem[] {
+  return [
+    { key: 'summary', label: 'Resumo do projeto', present: m.summary, missingHint: 'escreva o resumo no cadastro do grupo' },
+    { key: 'advisors', label: 'Orientador(es)', present: m.advisors, missingHint: 'informe ao menos um professor orientador' },
+    { key: 'students', label: 'Alunos', present: m.students, missingHint: 'cadastre os alunos do grupo' },
+    { key: 'github', label: 'Repositório no GitHub', present: m.github, missingHint: 'adicione o link https://github.com/…' },
+    { key: 'article', label: 'Artigo (PDF)', present: m.article, missingHint: 'envie o arquivo do artigo ou o link do PDF' },
+    { key: 'slides', label: 'Apresentação (slides)', present: m.slides, missingHint: 'envie o arquivo ou o link da apresentação' },
+    { key: 'viewLink', label: 'Link de visualização do projeto', present: m.viewLink, missingHint: 'adicione o link para acessar o projeto' },
+  ];
+}

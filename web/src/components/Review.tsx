@@ -7,6 +7,64 @@ import { fmtDateTime } from '../lib/format.ts';
 const STATUS_PT: Record<string, string> = { submitted: 'Enviada', draft: 'Rascunho', not_opened: 'Não aberta' };
 const fmtPts = (n: number | null | undefined) => (n === null || n === undefined ? '—' : Number.isInteger(n) ? String(n) : formatScore(n));
 
+/** Ordem do instrumento: avaliador 1, 2, 3… (posição da ficha); sem posição, por nome. */
+function sortEvaluators<T extends { name: string; rubric: { sortOrder: number } }>(list: T[]): T[] {
+  return [...list].sort((a, b) => (a.rubric.sortOrder || 99) - (b.rubric.sortOrder || 99) || a.name.localeCompare(b.name));
+}
+const pillarName = (e: any) => e.rubric.dimensionShort || e.rubric.dimension || e.rubric.title;
+
+/** Registro consolidado (como a última página do instrumento): uma linha por avaliador e o total da banca. */
+function ConsolidatedTable({ c }: { c: any }) {
+  const list = sortEvaluators(c.evaluators as any[]);
+  return (
+    <section className="card consolidated" aria-labelledby="registro-consolidado">
+      <h4 id="registro-consolidado">Registro consolidado da banca</h4>
+      <div className="table-wrap">
+        <table className="table consolidated-table">
+          <thead>
+            <tr>
+              <th scope="col">Avaliador</th>
+              <th scope="col">Dimensão</th>
+              <th scope="col">Professor(a)</th>
+              <th scope="col">Situação</th>
+              <th scope="col" className="num">
+                Pontuação
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((e, i) => (
+              <tr key={e.userId} className={e.absent ? 'is-absent' : ''}>
+                <td>
+                  <span className="pillar-chip">{e.rubric.sortOrder > 0 ? e.rubric.sortOrder : i + 1}</span> Avaliador {e.rubric.sortOrder > 0 ? e.rubric.sortOrder : i + 1}
+                </td>
+                <td>{pillarName(e)}</td>
+                <td>{e.name}</td>
+                <td>
+                  <span className={`pill pill-${e.absent ? 'muted' : e.status === 'submitted' ? 'ok' : 'warn'}`}>{e.absent ? 'Dispensado' : STATUS_PT[e.status]}</span>
+                </td>
+                <td className="num">
+                  <strong>{e.counted ? fmtPts(e.points) : '—'}</strong> / {fmtPts(e.maxPoints)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row" colSpan={4} className="num">
+                {c.event.aggregation === 'sum' ? 'TOTAL DA BANCA' : 'RESULTADO (média)'}
+              </th>
+              <td className="num total-cell">
+                <strong>{c.event.aggregation === 'sum' ? fmtPts(c.finalScore) : formatScore(c.finalScore)}</strong> / {fmtPts(c.finalMax ?? 100)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 /** Parecer da banca (opções configuradas) + pontos fortes, prioridades de melhoria e orientações finais. */
 function VerdictEditor({
   groupId,
@@ -38,22 +96,49 @@ function VerdictEditor({
     guidance: data.verdict?.guidance ?? '',
   };
   const dirty = !readOnly && JSON.stringify(saved) !== JSON.stringify(f);
+  const feedbacks = sortEvaluators(data.evaluators ?? [])
+    .filter((e: any) => e.generalComment?.trim())
+    .map((e: any) => ({ key: e.userId, title: `${pillarName(e)} — ${e.name}`, text: e.generalComment as string }));
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   return (
     <section className="card" aria-labelledby={`parecer-${groupId}`}>
       <h4 id={`parecer-${groupId}`}>Parecer da banca</h4>
       {dirty && <Alert kind="warn">Há alterações no parecer que ainda não foram salvas.</Alert>}
+      <p className="muted small">Escolha uma opção. Ela sai no PDF marcada com “( X )”.</p>
       <fieldset className="verdict-options" disabled={readOnly}>
         <legend className="sr-only">Parecer da banca</legend>
-        {data.event.verdictOptions.map((o: string) => (
-          <label key={o} className={`vote-opt ${f.verdict === o ? 'selected' : ''}`}>
-            <input type="radio" name={`verdict-${groupId}`} checked={f.verdict === o} onChange={() => set({ verdict: o })} /> {o}
+        {data.event.verdictOptions.map((o: string, i: number) => (
+          <label key={o} className={`verdict-card verdict-${i} ${f.verdict === o ? 'selected' : ''}`}>
+            <input type="radio" name={`verdict-${groupId}`} checked={f.verdict === o} onChange={() => set({ verdict: o })} />
+            <span className="verdict-mark" aria-hidden="true">
+              {f.verdict === o ? 'X' : ''}
+            </span>
+            <span>{o}</span>
           </label>
         ))}
       </fieldset>
-      <Field label="Pontos fortes do grupo">{(p) => <textarea {...p} rows={2} disabled={readOnly} value={f.strengths} onChange={(e) => set({ strengths: e.target.value })} />}</Field>
-      <Field label="Prioridades de melhoria">{(p) => <textarea {...p} rows={2} disabled={readOnly} value={f.improvements} onChange={(e) => set({ improvements: e.target.value })} />}</Field>
-      <Field label="Orientações finais da banca">{(p) => <textarea {...p} rows={2} disabled={readOnly} value={f.guidance} onChange={(e) => set({ guidance: e.target.value })} />}</Field>
+      {feedbacks.length > 0 && (
+        <details className="feedback-ref" open={!readOnly}>
+          <summary>Devolutivas dos avaliadores (para apoiar a síntese)</summary>
+          <ul>
+            {feedbacks.map((fb) => (
+              <li key={fb.key}>
+                <strong>{fb.title}</strong>
+                <p className="pre">{fb.text}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <Field label="Pontos fortes do grupo">
+        {(p) => <textarea {...p} rows={3} disabled={readOnly} placeholder="Ex.: domínio técnico, boa demonstração, pesquisa bem fundamentada…" value={f.strengths} onChange={(e) => set({ strengths: e.target.value })} />}
+      </Field>
+      <Field label="Prioridades de melhoria">
+        {(p) => <textarea {...p} rows={3} disabled={readOnly} placeholder="Ex.: ampliar testes, aprofundar a fundamentação teórica…" value={f.improvements} onChange={(e) => set({ improvements: e.target.value })} />}
+      </Field>
+      <Field label="Orientações finais da banca">
+        {(p) => <textarea {...p} rows={3} disabled={readOnly} placeholder="Próximos passos combinados com o grupo." value={f.guidance} onChange={(e) => set({ guidance: e.target.value })} />}
+      </Field>
       {err && <Alert kind="error">{err}</Alert>}
       {!readOnly && (
         <Button
@@ -165,19 +250,21 @@ export function Review({ groupId, onChanged }: { groupId: number; onChanged?: ()
         </Button>
       </div>
 
-      <h4>Avaliadores e rubricas</h4>
-      {c.evaluators.map((e: any) => (
-        <section key={e.userId} className="card evaluator">
-          <div className="row between wrap">
-            <h5>
-              {e.name} <span className="muted">— {e.rubric.title} ({e.rubric.templateName} v{e.rubric.version})</span>
-            </h5>
-            <div>
+      <ConsolidatedTable c={c} />
+
+      <h4>Fichas de cada avaliador</h4>
+      {sortEvaluators(c.evaluators as any[]).map((e: any) => (
+        <details key={e.userId} className="card evaluator" open={!e.absent && e.pendencies.length > 0}>
+          <summary className="row between wrap">
+            <span className="evaluator-summary">
+              <strong>{pillarName(e)}</strong> — {e.name} <span className="muted small">({e.rubric.title}, v{e.rubric.version})</span>
+            </span>
+            <span>
               <span className={`pill pill-${e.absent ? 'muted' : e.status === 'submitted' ? 'ok' : 'warn'}`}>{e.absent ? 'Dispensado' : STATUS_PT[e.status]}</span>{' '}
               <strong>{e.counted ? `${fmtPts(e.points)} / ${fmtPts(e.maxPoints)}` : '—'}</strong>
               {e.counted && c.event.aggregation === 'mean' && <span className="muted small"> ({formatScore(e.teacherScore)} / 100)</span>}
-            </div>
-          </div>
+            </span>
+          </summary>
           {e.absent && (
             <p className="muted">
               Dispensa registrada por {e.absent.by}: {e.absent.reason}
@@ -202,14 +289,27 @@ export function Review({ groupId, onChanged }: { groupId: number; onChanged?: ()
                 </tr>
               </thead>
               <tbody>
-                {e.criteria.map((cr: any) => (
+                {e.criteria.map((cr: any, i: number) => (
                   <tr key={cr.id}>
                     <td>
-                      {cr.title}
+                      {i + 1}. {cr.title}
                       {!cr.required && <span className="muted"> (opcional)</span>}
                     </td>
                     <td className="num">{formatScore(cr.weight)}</td>
-                    <td className="num">{cr.waived ? <em>dispensado</em> : cr.score === null ? <em>sem nota</em> : formatScore(cr.score)}</td>
+                    <td className="num">
+                      {cr.waived ? (
+                        <em>dispensado</em>
+                      ) : cr.score === null ? (
+                        <em>sem nota</em>
+                      ) : (
+                        <>
+                          {formatScore(cr.score)}
+                          {e.rubric.scaleLabels?.find((l: any) => l.value === cr.score) && (
+                            <span className="muted small"> · {e.rubric.scaleLabels.find((l: any) => l.value === cr.score).label}</span>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td className="num">{cr.contribution === null ? '—' : formatScore(cr.contribution)}</td>
                     <td className="pre">{cr.waived ? `Dispensa: ${cr.waived.reason}` : cr.comment || ''}</td>
                   </tr>
@@ -219,10 +319,10 @@ export function Review({ groupId, onChanged }: { groupId: number; onChanged?: ()
           </div>
           {e.generalComment && (
             <p className="pre">
-              <strong>Observações gerais:</strong> {e.generalComment}
+              <strong>{e.rubric.feedbackLabel || 'Observações gerais'}:</strong> {e.generalComment}
             </p>
           )}
-        </section>
+        </details>
       ))}
 
       {c.event.verdictOptions?.length > 0 && (

@@ -1,10 +1,18 @@
 /**
- * Som de palmas sintetizado no navegador (Web Audio API): sem arquivo externo nem direitos autorais.
- * Cada palma é um estalo curto de ruído filtrado; centenas delas, em momentos aleatórios, formam o aplauso.
+ * Som de palmas do telão: o arquivo `assets/som-palmas.mp4` (só áudio, ~5,7 s), repetido em laço
+ * por APPLAUSE_SECONDS e esmaecido no fim (Web Audio API).
  * Navegadores só liberam áudio depois de um clique/tecla na página — veja `unlockAudio`.
  */
+import palmasUrl from '../assets/som-palmas.mp4';
+
+/** Duração total das palmas, em segundos. */
+export const APPLAUSE_SECONDS = 30;
+/** Esmaecimento no fim, em segundos. */
+const FADE_SECONDS = 3;
+
 let ctx: AudioContext | null = null;
-let cached: AudioBuffer | null = null;
+let buffer: Promise<AudioBuffer | null> | null = null;
+let playing: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
 
 function context(): AudioContext | null {
   if (ctx) return ctx;
@@ -14,62 +22,69 @@ function context(): AudioContext | null {
   return ctx;
 }
 
+/** Carrega e decodifica o arquivo uma única vez (null se falhar). */
+function loadBuffer(c: AudioContext): Promise<AudioBuffer | null> {
+  buffer ??= fetch(palmasUrl)
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    .then((data) => c.decodeAudioData(data))
+    .catch((err) => {
+      console.warn('Não foi possível carregar o som de palmas:', err);
+      buffer = null; // tenta de novo na próxima vez
+      return null;
+    });
+  return buffer;
+}
+
 /** O áudio está liberado pelo navegador? */
 export function audioReady(): boolean {
   return context()?.state === 'running';
 }
 
-/** Chamar em resposta a um clique/tecla: libera o áudio (política de reprodução automática). */
+/** Chamar em resposta a um clique/tecla: libera o áudio (política de reprodução automática) e já carrega o arquivo. */
 export async function unlockAudio(): Promise<boolean> {
   const c = context();
   if (!c) return false;
   if (c.state === 'suspended') await c.resume().catch(() => undefined);
+  void loadBuffer(c);
   return c.state === 'running';
 }
 
-function applauseBuffer(c: AudioContext, seconds: number): AudioBuffer {
-  const rate = c.sampleRate;
-  const buf = c.createBuffer(2, Math.floor(rate * seconds), rate);
-  for (let ch = 0; ch < 2; ch++) {
-    const data = buf.getChannelData(ch);
-    // Intensidade: cresce rápido, sustenta e vai diminuindo no fim.
-    const claps = Math.floor(seconds * 38);
-    for (let k = 0; k < claps; k++) {
-      const t = Math.random() * seconds;
-      const env = Math.min(1, t / 0.4) * Math.min(1, (seconds - t) / (seconds * 0.45));
-      if (Math.random() > env) continue;
-      const start = Math.floor(t * rate);
-      const len = Math.floor(rate * (0.012 + Math.random() * 0.02));
-      const amp = 0.25 + Math.random() * 0.5;
-      const decay = 4 + Math.random() * 5;
-      for (let i = 0; i < len && start + i < data.length; i++) {
-        data[start + i]! += (Math.random() * 2 - 1) * amp * Math.exp((-decay * i) / len);
-      }
-    }
-    for (let i = 0; i < data.length; i++) data[i] = Math.max(-1, Math.min(1, data[i]!));
+/** Interrompe as palmas em andamento (ex.: ao desligar "Palmas no fim"). */
+export function stopApplause() {
+  if (!playing) return;
+  try {
+    playing.src.stop();
+  } catch {
+    /* já parou */
   }
-  return buf;
+  playing = null;
 }
 
-/** Toca o aplauso (cerca de 6 s). Retorna false se o áudio ainda não foi liberado. */
-export function playApplause(seconds = 6): boolean {
+/** Toca as palmas por `seconds` (padrão 30 s). Retorna false se o áudio ainda não foi liberado. */
+export function playApplause(seconds = APPLAUSE_SECONDS): boolean {
   (window as any).__bancaApplausePlays = ((window as any).__bancaApplausePlays ?? 0) + 1;
   const c = context();
   if (!c || c.state !== 'running') return false;
-  if (!cached || cached.duration < seconds) cached = applauseBuffer(c, seconds);
-  const src = c.createBufferSource();
-  src.buffer = cached;
-  // Faixa típica do som de palmas e um leve corte de graves.
-  const band = c.createBiquadFilter();
-  band.type = 'bandpass';
-  band.frequency.value = 1700;
-  band.Q.value = 0.7;
-  const high = c.createBiquadFilter();
-  high.type = 'highpass';
-  high.frequency.value = 400;
-  const gain = c.createGain();
-  gain.gain.value = 1.6;
-  src.connect(band).connect(high).connect(gain).connect(c.destination);
-  src.start();
+  void loadBuffer(c).then((buf) => {
+    if (!buf) return;
+    stopApplause();
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const gain = c.createGain();
+    const t0 = c.currentTime;
+    const fade = Math.min(FADE_SECONDS, seconds / 2);
+    gain.gain.setValueAtTime(1, t0);
+    gain.gain.setValueAtTime(1, t0 + seconds - fade);
+    gain.gain.linearRampToValueAtTime(0, t0 + seconds);
+    src.connect(gain).connect(c.destination);
+    src.start(t0);
+    src.stop(t0 + seconds);
+    const current = { src, gain };
+    playing = current;
+    src.onended = () => {
+      if (playing === current) playing = null;
+    };
+  });
   return true;
 }

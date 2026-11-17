@@ -330,7 +330,7 @@ describe('avaliação, votação e fechamento', () => {
     expect(await env.db.query('select * from evaluation_closures')).toHaveLength(0);
   });
 
-  it('avaliador não primário não acessa conferência nem PDF', async () => {
+  it('avaliador que não é Presidente da Banca não acessa conferência nem PDF', async () => {
     expect((await bruno.get(`/api/groups/${entries[0]!.groupId}/review`)).status).toBe(403);
     expect((await bruno.post(`/api/groups/${entries[0]!.groupId}/close`, { confirm: true })).status).toBe(403);
   });
@@ -501,9 +501,9 @@ describe('troca de grupo e exceções', () => {
   });
 });
 
-describe('professor primário também avalia', () => {
-  it('designação exige a ficha, cria a atribuição e o primário recebe a ficha como os demais', async () => {
-    const u = await admin.post('/api/users', { name: 'Prof. Primário Novo (Demo)', email: 'primnovo@demo.banca', role: 'teacher', password: 'demo12345' });
+describe('Presidente da Banca também avalia', () => {
+  it('designação exige a ficha, cria a atribuição e o Presidente da Banca recebe a ficha como os demais', async () => {
+    const u = await admin.post('/api/users', { name: 'Prof. Presidente Novo (Demo)', email: 'primnovo@demo.banca', role: 'teacher', password: 'demo12345' });
     expect(u.status).toBe(200);
     const semFicha = await admin.put(`/api/days/${dayId}/primary`, { userId: u.body.id });
     expect(semFicha.status).toBe(400);
@@ -528,14 +528,14 @@ describe('professor primário também avalia', () => {
     // Grupos já fechados não ganham ficha nova; o grupo em aberto, sim.
     const g1 = ws.entries.find((e: any) => e.code === 'Grupo 01');
     expect(g1.myEvaluationId).toBeNull();
-    await admin.post(`/api/groups/${entries[1]!.groupId}/reopen`, { reason: 'Inclusão do novo professor primário como avaliador' });
+    await admin.post(`/api/groups/${entries[1]!.groupId}/reopen`, { reason: 'Inclusão do novo Presidente da Banca como avaliador' });
     const ws2 = (await prim.get(`/api/days/${dayId}/workspace`)).body;
     const g2 = ws2.entries.find((e: any) => e.code === 'Grupo 02');
     expect(g2.myEvaluationId).toBeGreaterThan(0);
     const form = (await prim.get(`/api/evaluations/${g2.myEvaluationId}`)).body;
     expect(form.rubric.criteria[0].title).toBe('Domínio técnico');
-    // Fechamento passa a exigir também a ficha do primário.
+    // Fechamento passa a exigir também a ficha do Presidente da Banca.
     const review = (await prim.get(`/api/groups/${entries[1]!.groupId}/review`)).body.consolidation;
-    expect(review.blockers.join(' ')).toMatch(/Prof\. Primário Novo/);
+    expect(review.blockers.join(' ')).toMatch(/Prof\. Presidente Novo/);
   });
 });

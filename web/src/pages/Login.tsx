@@ -53,7 +53,7 @@ export function LoginPage() {
       </div>
       {import.meta.env.DEV && (
         <details className="card muted">
-          <summary>Contas de demonstração (somente desenvolvimento, dados fictícios)</summary>
+          <summary>Contas de demonstração (somente desenvolvimento local, com DADOS_DEMO=true)</summary>
           <p>
             Senha: <code>demo1234</code>
           </p>
@@ -62,7 +62,7 @@ export function LoginPage() {
               <code>admin@demo.banca</code> — administrador
             </li>
             <li>
-              <code>ana@demo.banca</code> — professora primária e avaliadora
+              <code>ana@demo.banca</code> — Presidente da Banca e avaliadora
             </li>
             <li>
               <code>bruno@demo.banca</code>, <code>carla@demo.banca</code>, <code>daniel@demo.banca</code>, <code>elisa@demo.banca</code>, <code>fabio@demo.banca</code> —

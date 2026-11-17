@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * E2E: sobe o servidor com banco PGlite descartável, servindo o build do frontend (web/dist)
- * e com o cronômetro acelerado 60x (TIMER_SPEED — só permitido fora de produção).
+ * e com o cronômetro acelerado 60x (TIMER_SPEED).
  * Pré-requisito: `npm run build -w web`.
  */
 const PORT = 3200;

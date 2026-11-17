@@ -11,9 +11,12 @@ import { Review } from '../components/Review.tsx';
 import { ActionButton, Alert, Button, Empty, ErrorBox, EvalStatus, Modal, Spinner, StartedCheck, StatusBadge, useLoad, useToast } from '../components/ui.tsx';
 import { ConnectionBadge } from './Cronometro.tsx';
 import { OrderBadge, ProjectModal, namesList } from '../components/ProjectMaterials.tsx';
+import { formatPersonName } from '../components/GroupCard.tsx';
+import { IconUsers } from '../components/icons.tsx';
 import { dayLabel, fmtDate, fmtTime } from '../lib/format.ts';
+import { MaterialsIndicator } from '../components/MaterialsIndicator.tsx';
 
-/** Área 2 — Professor (avaliador e, quando designado, primário). */
+/** Área 2 — Professor (avaliador e, quando designado, Presidente da Banca). */
 export function ProfessorPage() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -51,7 +54,7 @@ export function ProfessorPage() {
           <ul className="day-cards">
             {list.map((d) => (
               <li key={d.id}>
-                <button className="day-card" onClick={() => setParams({ dia: String(d.id) })} aria-label={`${dayLabel(d)}${d.isPrimary ? ' · Primário(a)' : ''}`}>
+                <button className="day-card" onClick={() => setParams({ dia: String(d.id) })} aria-label={`${dayLabel(d)}${d.isPrimary ? ' · Presidente da Banca' : ''}`}>
                   <span className="day-card-event">{d.eventName}</span>
                   <span className="day-card-title">{d.label}</span>
                   <span className="day-card-meta">
@@ -111,7 +114,7 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
     await api.post(`/api/days/${dayId}/select`, { entryId });
     await ws.reload(true);
   };
-  // Avaliadores aguardam o primário (antes de ele abrir a sessão, na troca de grupo ou depois do último) com a lista do dia em ordem.
+  // Avaliadores aguardam o Presidente da Banca (antes de ele abrir a sessão, na troca de grupo ou depois do último) com a lista do dia em ordem.
   const waiting = !w.access.canControl && !(w.current?.started && w.current.status !== 'finalized') && !viewingOther;
 
   return (
@@ -125,12 +128,12 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
               {w.day.label} · {fmtDate(w.day.date)}
             </span>
             {w.day.room && <span>{w.day.room}</span>}
-            <span>Primário(a): {w.primaryName ?? 'não designado'}</span>
+            <span>Presidente da Banca: {w.primaryName ?? 'não designado'}</span>
             {w.predictedEnd && <span>Término previsto {w.predictedEnd}</span>}
           </div>
         </div>
         <div className="row gap wrap">
-          {w.access.canControl && <span className="pill pill-info">{w.access.isAdmin ? 'Administrador' : 'Você é o(a) professor(a) primário(a)'}</span>}
+          {w.access.canControl && <span className="pill pill-info">{w.access.isAdmin ? 'Administrador' : 'Você é o(a) Presidente da Banca'}</span>}
           <ConnectionBadge connection={connection} />
           {onChangeDay && (
             <Button variant="ghost" onClick={onChangeDay}>
@@ -163,10 +166,7 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
                   <p className="group-title">{w.current.title}</p>
                   <ul className="meta-list">
                     <li>
-                      <b>{w.current.advisors.length > 1 ? 'Orientadores:' : 'Orientação:'}</b> {w.current.advisors.length ? namesList(w.current.advisors) : '—'}
-                    </li>
-                    <li>
-                      <b>Alunos:</b> {w.current.students.join('; ') || '—'}
+                      <b>Alunos:</b> {w.current.students.length ? namesList(w.current.students.map(formatPersonName)) : '—'}
                     </li>
                     <li>
                       <b>Hora programada:</b> {w.current.predictedStart}–{w.current.predictedEnd}
@@ -178,7 +178,7 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
                 {live && <TimerDisplay live={live} view={view} compact countdownMs={countdownLeft(live, receivedAt)} />}
               </div>
             ) : (
-              <Alert kind="info">Nenhum grupo selecionado ainda{w.access.canControl ? ': escolha um no cronograma.' : '. Aguarde o professor primário.'}</Alert>
+              <Alert kind="info">Nenhum grupo selecionado ainda{w.access.canControl ? ': escolha um no cronograma.' : '. Aguarde o Presidente da Banca.'}</Alert>
             )}
             {w.access.canControl && live && (
               <div role="group" aria-label="Condução da sessão">
@@ -206,7 +206,7 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
             ) : w.current && !w.entries.find((e) => e.entryId === w.current!.entryId)?.assignedToMe ? (
               <Empty>Você não está designado(a) para avaliar este grupo.</Empty>
             ) : (
-              <Empty>A ficha será aberta automaticamente, em tempo real, quando o professor primário iniciar a apresentação.</Empty>
+              <Empty>A ficha será aberta automaticamente, em tempo real, quando o Presidente da Banca iniciar a apresentação.</Empty>
             )}
           </section>
         </div>
@@ -265,11 +265,17 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
                   <div className="sched-title">
                     {e.className} — {e.title}
                   </div>
+                  <StudentsLine students={e.students} />
                   <div className="small muted">
                     Programado {e.predictedStart}–{e.predictedEnd}
                     {e.overflow && <span className="warn-text"> após o término do dia</span>}
                     {e.startedAt && ` · real ${fmtTime(e.startedAt)}${e.endedAt ? `–${fmtTime(e.endedAt)}` : ''}`}
                   </div>
+                  {e.materials && (
+                    <div className="sched-mat">
+                      <MaterialsIndicator materials={e.materials} groupCode={e.code} />
+                    </div>
+                  )}
                   <div className="sched-actions small">
                     <StartedCheck started={e.started} at={e.startedAt} />
                     <Button variant="ghost" onClick={() => setProjectOf(e.groupId)} aria-label={`Projeto de ${e.code}`}>
@@ -320,7 +326,7 @@ function DayWorkspace({ dayId, onChangeDay }: { dayId: number; onChangeDay?: () 
   );
 }
 
-/** Telão: o primário ativa o dia; o /cronometro passa a exibi-lo sozinho (sem seleção na tela). */
+/** Telão: o Presidente da Banca ativa o dia; o /cronometro passa a exibi-lo sozinho (sem seleção na tela). */
 function DisplayControl({ dayId, display, onChanged }: { dayId: number; display: Workspace['display']; onChanged: () => void }) {
   const toast = useToast();
   const set = async (active: boolean) => {
@@ -374,7 +380,7 @@ function WaitingBoard({ w, onProject, onOpenEval }: { w: Workspace; onProject: (
       <section className="card waiting-hero" aria-live="polite">
         <span className="waiting-dot" aria-hidden="true" />
         <div>
-          <h2>{allDone ? 'Todas as apresentações do dia já começaram' : 'Aguardando o professor primário'}</h2>
+          <h2>{allDone ? 'Todas as apresentações do dia já começaram' : 'Aguardando o Presidente da Banca'}</h2>
           <p className="muted">
             {allDone
               ? 'Você ainda pode abrir e revisar suas fichas na lista abaixo.'
@@ -412,6 +418,7 @@ function WaitingBoard({ w, onProject, onOpenEval }: { w: Workspace; onProject: (
                   <strong>{e.code}</strong>
                   {e.className && <span className="muted"> · {e.className}</span>}
                   <span className="order-title">{e.title}</span>
+                  <StudentsLine students={e.students} />
                 </span>
                 <span className="order-side">
                   <StatusBadge status={e.status} label={e.statusLabel} />
@@ -430,6 +437,16 @@ function WaitingBoard({ w, onProject, onOpenEval }: { w: Workspace; onProject: (
           </ol>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Linha "Alunos: Ana, Bruno e Carla" do cronograma, com os nomes formatados (só a inicial de cada nome em maiúsculo). */
+function StudentsLine({ students }: { students: string[] | undefined }) {
+  if (!students?.length) return null;
+  return (
+    <div className="sched-students small">
+      <IconUsers size={14} /> <b>Alunos:</b> {namesList(students.map(formatPersonName))}
     </div>
   );
 }

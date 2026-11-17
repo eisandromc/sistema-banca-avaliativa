@@ -6,7 +6,7 @@ import { ActionButton, Alert, Button, ConfirmDialog, Modal, Field, useToast } fr
 import { StageEditor, stagesValid } from './StageEditor.tsx';
 import { errorMessage } from '../lib/api.ts';
 
-/** Controles exclusivos do professor primário / administrador. O servidor também valida a permissão. */
+/** Controles exclusivos do Presidente da Banca / administrador. O servidor também valida a permissão. */
 export function TimerControls({ dayId, live, view }: { dayId: number; live: LiveState; view: TimerView | null }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<null | 'advance' | 'finish' | 'restart'>(null);

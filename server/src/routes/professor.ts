@@ -57,11 +57,22 @@ export async function professorRoutes(app: FastifyInstance) {
     const assignedAll = myAssignments.some((a) => a.group_id === null);
     const assignedGroups = new Set(myAssignments.map((a) => a.group_id));
 
+    // Nomes dos alunos de cada grupo do dia, para o cronograma da área do professor.
+    const studentRows = await db.query<{ group_id: number; name: string }>(
+      `select gs.group_id, s.name from group_students gs join students s on s.id = gs.student_id
+        where gs.group_id in (select group_id from schedule_entries where day_id = $1)
+        order by gs.group_id, gs.position, s.name`,
+      [dayId],
+    );
+    const studentsOf = new Map<number, string[]>();
+    for (const r of studentRows) studentsOf.set(r.group_id, [...(studentsOf.get(r.group_id) ?? []), r.name]);
+
     const entries = schedule.entries
       .map((e) => {
         const mine = myEvals.find((m) => m.entry_id === e.entryId);
         return {
           ...e,
+          students: studentsOf.get(e.groupId) ?? [],
           assignedToMe: assignedAll || assignedGroups.has(e.groupId),
           myEvaluationId: mine?.id ?? null,
           myEvaluationStatus: mine?.status ?? null,
@@ -95,7 +106,7 @@ export async function professorRoutes(app: FastifyInstance) {
       };
     }
 
-    // Progresso das fichas (somente situação, nunca notas) — visível ao primário/administrador.
+    // Progresso das fichas (somente situação, nunca notas) — visível ao Presidente da Banca/administrador.
     let progress: Array<{ userId: number; name: string; status: string }> | null = null;
     if (access.canControl && curRow) {
       const assigned = await resolveAssignments(db, dayId, curRow.groupId);

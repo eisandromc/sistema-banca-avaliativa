@@ -9,8 +9,8 @@ import { enrichDemoData } from './db/demoMaterials.ts';
 const config = loadConfig();
 const db = await createDatabase(config);
 await migrate(db, (m) => console.log(m));
-// Dados de demonstração (fictícios) existem só no ambiente TESTE; DESENVOLVIMENTO e PRODUCAO ficam com o que foi cadastrado.
-if (config.ambiente === 'TESTE') {
+// Dados de demonstração (fictícios): só com DADOS_DEMO=true. Por padrão o banco guarda apenas o que foi cadastrado.
+if (config.dadosDemo) {
   const r = await seedDemo(db);
   if (!r.skipped) console.log(`Seed de DEMONSTRAÇÃO criado (dados fictícios). Senha das contas demo: ${DEMO_PASSWORD}`);
   const pi = await seedPiDemo(db);
@@ -33,5 +33,5 @@ process.on('SIGTERM', shutdown);
 
 await app.listen({ port: config.port, host: config.host });
 console.log(
-  `Servidor em http://${config.host}:${config.port} — ambiente: ${config.ambiente} — banco: ${db.kind}${config.timerSpeed !== 1 ? ` — MODO DE TESTE: cronômetro acelerado ${config.timerSpeed}x` : ''}`,
+  `Servidor em http://${config.host}:${config.port} — banco: ${db.kind}${config.timerSpeed !== 1 ? ` — ATENÇÃO: cronômetro acelerado ${config.timerSpeed}x` : ''}`,
 );

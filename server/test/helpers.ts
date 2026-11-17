@@ -63,7 +63,7 @@ export async function setupEnv(opts: { db?: Database; seed?: boolean; startAt?: 
   const db = opts.db ?? (await createPgliteDatabase(null));
   let now = opts.startAt ?? Date.parse(`${DEMO_DATE}T10:30:00Z`);
   const clock = { now: () => now, advance: (ms: number) => void (now += ms) };
-  const config = loadConfig({ ambiente: 'TESTE', timerSpeed: 1, webDist: null, cookieSecure: false, countdownSeconds: opts.countdownSeconds ?? 0 });
+  const config = loadConfig({ cookieSecret: 'x'.repeat(32), dadosDemo: false, timerSpeed: 1, webDist: null, cookieSecure: false, countdownSeconds: opts.countdownSeconds ?? 0 });
   const app = await buildApp(config, { db, logger: false, ticker: false, now: clock.now });
   const demo = await seedDemo(db, { date: DEMO_DATE });
   if (demo.skipped) throw new Error('banco de teste já tinha dados');

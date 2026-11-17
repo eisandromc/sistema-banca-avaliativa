@@ -20,7 +20,7 @@ function ReportsInner() {
   return (
     <div>
 
-      <p className="muted">O PDF de cada projeto é gerado no servidor a partir do registro imutável do fechamento. O acesso é restrito a administradores e ao professor primário do dia.</p>
+      <p className="muted">O PDF de cada projeto é gerado no servidor a partir do registro imutável do fechamento. O acesso é restrito a administradores e ao Presidente da Banca do dia.</p>
       {closed.length === 0 ? (
         <Empty>Nenhum projeto fechado neste dia.</Empty>
       ) : (

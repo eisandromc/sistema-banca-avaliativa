@@ -2,6 +2,28 @@ import type { Queryable } from '../db/database.ts';
 import { computeSchedule, formatHHMM } from '../../../shared/schedule.ts';
 import type { Stage } from '../../../shared/timer.ts';
 import { notFound } from '../http.ts';
+import type { GroupMaterials } from '../../../shared/groups.ts';
+
+/** Colunas booleanas dos materiais do grupo; usar com o alias `g` (groups). */
+export const MATERIALS_SQL = `(g.description is not null and length(trim(g.description)) > 0) as m_summary,
+            (jsonb_array_length(coalesce(g.advisors, '[]'::jsonb)) > 0 or (g.advisor is not null and length(trim(g.advisor)) > 0)) as m_advisors,
+            exists (select 1 from group_students gs where gs.group_id = g.id) as m_students,
+            (g.github_url is not null) as m_github,
+            (g.pdf_url is not null or exists (select 1 from group_files f where f.group_id = g.id and f.kind = 'article' and f.deleted_at is null)) as m_article,
+            (g.slides_url is not null or exists (select 1 from group_files f where f.group_id = g.id and f.kind = 'slides' and f.deleted_at is null)) as m_slides,
+            (g.project_url is not null) as m_view_link`;
+
+export function materialsFromRow(r: any): GroupMaterials {
+  return {
+    summary: !!r.m_summary,
+    advisors: !!r.m_advisors,
+    students: !!r.m_students,
+    github: !!r.m_github,
+    article: !!r.m_article,
+    slides: !!r.m_slides,
+    viewLink: !!r.m_view_link,
+  };
+}
 
 export type EntryStatus = 'waiting' | 'running' | 'started' | 'awaiting_closure' | 'finalized';
 
@@ -108,6 +130,8 @@ export interface ScheduleRow {
   submittedEvaluators: number;
   excusedEvaluators: number;
   closureVersion: number | null;
+  /** O que o grupo já tem cadastrado (resumo, orientadores, alunos, GitHub, artigo, apresentação, link). */
+  materials: GroupMaterials;
 }
 
 export interface DaySchedule {
@@ -137,6 +161,7 @@ export async function getDaySchedule(q: Queryable, dayId: number): Promise<DaySc
   const rows = await q.query<any>(
     `select e.id, e.position, e.group_id, e.time_profile_id, e.started_at, e.ended_at,
             g.code, g.class_name, g.title, g.color,
+            ${MATERIALS_SQL},
             (select t.status from timer_sessions t where t.entry_id = e.id and not t.superseded) as timer_status,
             (select max(c.version) from evaluation_closures c where c.group_id = e.group_id and c.reopened_at is null) as closure_version
        from schedule_entries e join groups g on g.id = e.group_id
@@ -219,6 +244,7 @@ export async function getDaySchedule(q: Queryable, dayId: number): Promise<DaySc
       submittedEvaluators: submitted,
       excusedEvaluators: exc,
       closureVersion: r.closure_version,
+      materials: materialsFromRow(r),
     };
   });
 

@@ -187,7 +187,7 @@ export interface DisplayInfo {
 }
 
 /**
- * Telão: qual dia exibir. Não há seleção na tela — segue o dia ativado pelo professor primário.
+ * Telão: qual dia exibir. Não há seleção na tela — segue o dia ativado pelo Presidente da Banca.
  * Recebe o sinal "display-changed" por WebSocket e, por segurança, também consulta a cada 5 s.
  */
 export function useDisplayDay() {

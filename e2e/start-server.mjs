@@ -11,8 +11,15 @@ const tsx = resolve(root, 'node_modules/tsx/dist/cli.mjs');
 const child = spawn(process.execPath, [tsx, 'src/index.ts'], {
   cwd: resolve(root, 'server'),
   stdio: 'inherit',
-  // TESTE: o ambiente com as contas e bancas de demonstração de que os testes dependem.
-  env: { ...process.env, AMBIENTE: 'TESTE', DATABASE_URL_TESTE: '', PGLITE_DIR_TESTE: dataDir, HOST: '127.0.0.1' },
+  // DADOS_DEMO: as contas e bancas de demonstração de que os testes dependem.
+  env: {
+    ...process.env,
+    DADOS_DEMO: 'true',
+    DATABASE_URL: '',
+    PGLITE_DIR: dataDir,
+    COOKIE_SECRET: process.env.COOKIE_SECRET || 'e2e-cookie-secret-0123456789-abcdefghij',
+    HOST: '127.0.0.1',
+  },
 });
 const stop = () => child.kill();
 process.on('SIGINT', stop);

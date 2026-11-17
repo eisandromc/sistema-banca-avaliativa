@@ -178,7 +178,7 @@ describe('correções do processo', () => {
     expect((await admin.patch(`/api/assignments/999999`, { rubricPosition: brunoA.rubricPosition })).status).toBe(404);
   });
 
-  it('a atribuição do professor primário não é removida sem trocar o primário', async () => {
+  it('a atribuição do Presidente da Banca não é removida sem trocar o Presidente da Banca', async () => {
     const list = (await admin.get(`/api/days/${sc.dayId}/assignments`)).body.assignments;
     const anaA = list.find((a: any) => a.userName.includes('Ana') && a.groupId === null);
     const r = await admin.del(`/api/assignments/${anaA.id}`);
@@ -187,7 +187,7 @@ describe('correções do processo', () => {
   });
 
   it('avaliador designado depois do início recebe a ficha ao abrir a conferência', async () => {
-    // C-10 está no dia incompleto: designa primário e perfil, inicia, e só depois inclui um avaliador.
+    // C-10 está no dia incompleto: designa Presidente da Banca e perfil, inicia, e só depois inclui um avaliador.
     const evs = (await admin.get('/api/events')).body.events.find((e: any) => e.id === sc.eventId);
     const ficha = (await admin.get(`/api/days/${sc.dayId}/assignments`)).body.assignments[0].rubricPosition;
     const d2 = evs.days.find((d: any) => d.id === sc.incompleteDayId);
@@ -217,7 +217,7 @@ describe('correções do processo', () => {
   });
 });
 
-describe('telão: dia ativado pelo primário, sem seleção na tela', () => {
+describe('telão: dia ativado pelo Presidente da Banca, sem seleção na tela', () => {
   it('o primeiro "Iniciar" ativou o dia automaticamente; iniciar em outro dia não toma o telão', async () => {
     // O C-08 foi iniciado (dia de cenários) quando nenhum dia estava ativo; depois o C-10 (outro dia) também.
     const d = (await env.anon.get('/api/public/display')).body;
@@ -225,7 +225,7 @@ describe('telão: dia ativado pelo primário, sem seleção na tela', () => {
     expect(d.display.eventName).toBe('Banca de Cenários de Teste — DEMONSTRAÇÃO');
   });
 
-  it('só o primário do dia ou o administrador ativa/desativa', async () => {
+  it('só o Presidente da Banca do dia ou o administrador ativa/desativa', async () => {
     expect((await bruno.post(`/api/days/${sc.dayId}/display`, { active: false })).status).toBe(403);
     expect((await env.anon.post(`/api/days/${sc.dayId}/display`, { active: false })).status).toBe(401);
     expect((await ana.post(`/api/days/${sc.dayId}/display`, { active: false })).status).toBe(200);
@@ -234,7 +234,7 @@ describe('telão: dia ativado pelo primário, sem seleção na tela', () => {
     expect((await env.anon.get('/api/public/display')).body.display.dayId).toBe(sc.dayId);
   });
 
-  it('um dia por vez: ativar outro dia substitui o anterior, e o primário vê que o telão está em outro dia', async () => {
+  it('um dia por vez: ativar outro dia substitui o anterior, e o Presidente da Banca vê que o telão está em outro dia', async () => {
     expect((await admin.post(`/api/days/${sc.incompleteDayId}/display`, { active: true })).status).toBe(200);
     expect((await env.anon.get('/api/public/display')).body.display.dayId).toBe(sc.incompleteDayId);
     const n = await env.db.one<{ n: number }>('select count(*)::int as n from event_days where display_active_at is not null');

@@ -97,7 +97,7 @@ export async function seedScenarios(db: Database, opts: { date?: string; now?: n
        values ($1, 'Dia de cenários', $2, '08:00', '12:00', 'Sala de Testes 10', 2, $3, $4) returning id`,
       [ev, date, profile, users.ana],
     ))!.id;
-    // Dia 2 propositalmente incompleto: sem primário, sem perfil e sem avaliadores (aparece como pendente no roteiro).
+    // Dia 2 propositalmente incompleto: sem Presidente da Banca, sem perfil e sem avaliadores (aparece como pendente no roteiro).
     const incompleteDay = (await q.one<{ id: number }>(
       `insert into event_days (event_id, label, date, start_time, end_time, room, gap_minutes)
        values ($1, 'Dia 2 — preparação incompleta', $2, '08:00', '12:00', null, 5) returning id`,

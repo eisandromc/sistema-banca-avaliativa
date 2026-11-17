@@ -198,7 +198,7 @@ describe('banca do Projeto Integrador', () => {
 });
 
 describe('dias de participação no cadastro do professor', () => {
-  it('lista, marca e desmarca dias com a ficha de cada dia; protege dias com fichas ou primário', async () => {
+  it('lista, marca e desmarca dias com a ficha de cada dia; protege dias com fichas ou Presidente da Banca', async () => {
     const users = (await admin.get('/api/users')).body.users;
     const daniel = users.find((u: any) => u.email === 'daniel@demo.banca');
     expect(daniel.days.map((d: any) => d.id)).toEqual(expect.arrayContaining([day1, day2]));
@@ -225,7 +225,7 @@ describe('dias de participação no cadastro do professor', () => {
     const rem = await admin.put(`/api/users/${elisa.id}/days`, { days: mine });
     expect(rem.body).toEqual({ added: 0, updated: 0, removed: 1 });
 
-    // Primário do dia não pode ser desmarcado; conta não-professor não participa
+    // Presidente da Banca do dia não pode ser desmarcado; conta não-professor não participa
     const bruno = users.find((u: any) => u.email === 'bruno@demo.banca');
     const bDays = (await admin.get(`/api/users/${bruno.id}/days`)).body.days.filter((d: any) => d.assigned && d.dayId !== day2);
     expect((await admin.put(`/api/users/${bruno.id}/days`, { days: bDays.map((d: any) => ({ dayId: d.dayId, rubricPosition: d.rubricPosition })) })).status).toBe(409);

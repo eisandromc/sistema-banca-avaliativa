@@ -292,25 +292,94 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
   for (const q of form.questions) if (q.required && !values.votes[q.id]) pendencies.push(`Voto: ${q.title}`);
   const hasInvalid = Object.keys(invalidFields).length > 0;
 
+  const r = form.rubric;
+  const isPillar = !!(r.evaluatorRole || r.dimension);
+  const answered = r.criteria.filter((c) => scoreMap.get(c.id) !== null && scoreMap.get(c.id) !== undefined).length;
+  const progressPct = r.criteria.length ? Math.round((answered / r.criteria.length) * 100) : 0;
+  const labelOf = (n: number | null | undefined) => (n === null || n === undefined ? null : r.scaleLabels.find((l) => l.value === n)?.label ?? null);
+  /** Faixa de cor da nota escolhida: baixa, média ou alta em relação à escala. */
+  const band = (n: number) => {
+    const ratio = (n - scale.min) / (scale.max - scale.min || 1);
+    return ratio <= 0.34 ? 'low' : ratio < 0.67 ? 'mid' : 'high';
+  };
+  const setScore = (id: number, raw: string) =>
+    update((s) => ({ ...s, scores: { ...s.scores, [id]: { ...(s.scores[id] ?? { raw: '', comment: '' }), raw } } }));
+  const goTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    (el.querySelector('input, textarea') as HTMLElement | null)?.focus({ preventScroll: true });
+  };
+  // Pendências com destino: um toque leva ao campo que falta.
+  const pendencyLinks: Array<{ label: string; target: string }> = [];
+  r.criteria.forEach((c, i) => {
+    if (c.required && scoreMap.get(c.id) === null) pendencyLinks.push({ label: `Critério ${i + 1}`, target: `crit-row-${c.id}` });
+    if (c.commentEnabled && c.commentRequired && !values.scores[c.id]?.comment.trim()) pendencyLinks.push({ label: `Justificativa ${i + 1}`, target: `crit-row-${c.id}` });
+  });
+  if (r.generalCommentRequired && !values.general.trim()) pendencyLinks.push({ label: r.feedbackLabel || 'Observação geral', target: `general-wrap-${evaluationId}` });
+  for (const q of form.questions) if (q.required && !values.votes[q.id]) pendencyLinks.push({ label: `Voto: ${q.title}`, target: `vq-wrap-${q.id}` });
+
   return (
     <form className="eval-form" onSubmit={(e) => e.preventDefault()} aria-label={`Ficha de avaliação — ${form.group.code}`}>
-      <div className="eval-head">
-        <div>
-          <h3>
-            {form.rubric.title} <span className="muted">· {form.rubric.templateName} v{form.rubric.version}</span>
-          </h3>
-          <p className="muted">
-            Escala {String(scale.min).replace('.', ',')} a {String(scale.max).replace('.', ',')} (incremento {String(scale.step).replace('.', ',')}). Zero é nota válida;
-            campo vazio significa “sem nota”.
+      <header className={`pillar-head ${isPillar ? 'is-pillar' : ''}`}>
+        <div className="pillar-badge" aria-hidden="true">
+          {r.sortOrder > 0 ? r.sortOrder : '✎'}
+        </div>
+        <div className="pillar-text">
+          <p className="pillar-kicker">
+            {r.sortOrder > 0 ? `Avaliador ${r.sortOrder}` : 'Sua ficha'}
+            {r.evaluatorRole ? ` · ${r.evaluatorRole}` : ''}
           </p>
-          {form.rubric.instructions && <p className="instructions">{form.rubric.instructions}</p>}
+          <h3 className="pillar-title">{r.title}</h3>
+          <p className="pillar-dimension">
+            {r.dimension ? (
+              <>
+                Dimensão: <strong>{r.dimension}</strong> ·{' '}
+              </>
+            ) : null}
+            {fmtPts(maxPoints)} pontos · escala {String(scale.min).replace('.', ',')} a {String(scale.max).replace('.', ',')}
+          </p>
         </div>
         <div className={`save-state save-${state}`} role="status" aria-live="polite">
           <span aria-hidden="true">{state === 'saved' ? '✔' : state === 'saving' ? '⟳' : state === 'dirty' ? '…' : '⚠'} </span>
           {ro ? (form.evaluation.status === 'submitted' ? 'Ficha enviada' : 'Somente leitura') : SAVE_LABEL[state]}
           {state === 'saved' && lastSaved && !ro && <span className="muted"> às {lastSaved.toLocaleTimeString('pt-BR')}</span>}
         </div>
-      </div>
+      </header>
+
+      {r.instructions &&
+        (isPillar ? (
+          <p className="pillar-resp">
+            <strong>Responsabilidade:</strong> {r.instructions}
+          </p>
+        ) : (
+          <p className="instructions">{r.instructions}</p>
+        ))}
+
+      <dl className="eval-ident">
+        <div>
+          <dt>Grupo</dt>
+          <dd>{form.group.code}</dd>
+        </div>
+        <div>
+          <dt>Turma</dt>
+          <dd>{form.group.className || '—'}</dd>
+        </div>
+        <div className="eval-ident-wide">
+          <dt>Projeto</dt>
+          <dd>{form.group.title}</dd>
+        </div>
+      </dl>
+
+      {r.scaleLabels.length > 0 && (
+        <div className="scale-legend" aria-label="Escala de avaliação">
+          {r.scaleLabels.map((l) => (
+            <span key={l.value} className={`scale-legend-item band-${band(l.value)}`}>
+              <b>{l.value}</b> {l.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {ro && form.evaluation.lockedReason && <Alert kind="info">{form.evaluation.lockedReason}</Alert>}
       {!ro && form.evaluation.status === 'submitted' && (
@@ -347,16 +416,41 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
         </Alert>
       )}
 
+      <div className="criteria-head" aria-hidden="true">
+        <span>Critério de avaliação</span>
+        <span>Pontos</span>
+      </div>
       <ol className="criteria">
-        {form.rubric.criteria.map((c) => {
+        {r.criteria.map((c, idx) => {
           const v = values.scores[c.id] ?? { raw: '', comment: '' };
           const err = invalidFields[c.id];
           const empty = v.raw.trim() === '';
           const inputId = `crit-${c.id}`;
+          const chosen = scoreMap.get(c.id);
+          const chosenLabel = labelOf(chosen);
+          const done = chosen !== null && chosen !== undefined;
           return (
-            <li key={c.id} className={`criterion ${err ? 'has-error' : ''}`}>
+            <li
+              key={c.id}
+              id={`crit-row-${c.id}`}
+              className={`criterion ${err ? 'has-error' : ''} ${done ? 'is-done' : ''}`}
+              onKeyDown={(e) => {
+                // Atalho: com o foco no critério, digitar um número da escala marca a nota.
+                if (ro || r.scaleLabels.length === 0) return;
+                if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                const hit = r.scaleLabels.find((l) => String(l.value) === e.key);
+                if (hit) {
+                  e.preventDefault();
+                  setScore(c.id, String(hit.value));
+                }
+              }}
+            >
               <div className="criterion-head">
+                <span className="criterion-num" aria-hidden="true">
+                  {idx + 1}
+                </span>
                 <label htmlFor={inputId} id={`${inputId}-title`} className="criterion-title">
+                  <span className="sr-only">Critério {idx + 1}: </span>
                   {c.title}
                   {c.required ? (
                     <span className="req" title="Obrigatório">
@@ -367,62 +461,76 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
                     <span className="muted"> (opcional)</span>
                   )}
                 </label>
-                <span className="weight">Peso {formatScore(c.weight, c.weight % 1 ? 1 : 0)}</span>
+                <span className={`criterion-points ${done ? `band-${band(chosen!)}` : 'is-empty'}`}>
+                  {done ? fmtPts(chosen!) : '—'}
+                  {c.weight !== 1 && <span className="weight"> × {formatScore(c.weight, c.weight % 1 ? 1 : 0)}</span>}
+                </span>
               </div>
               {c.description && (
                 <p className="muted small" id={`${inputId}-desc`}>
                   {c.description}
                 </p>
               )}
-              {form.rubric.scaleLabels.length > 0 ? (
-                <div className="scale-row" role="radiogroup" aria-labelledby={`${inputId}-title`} aria-describedby={`${inputId}-desc`}>
-                  {form.rubric.scaleLabels.map((l) => {
-                    const checked = !empty && parseScore(v.raw) === l.value;
-                    return (
-                      <label key={l.value} className={`scale-opt ${checked ? 'selected' : ''} ${ro ? 'disabled' : ''}`}>
-                        <input
-                          type="radio"
-                          name={`crit-${evaluationId}-${c.id}`}
-                          checked={checked}
-                          disabled={ro}
-                          onChange={() => update((s) => ({ ...s, scores: { ...s.scores, [c.id]: { ...v, raw: String(l.value) } } }))}
-                        />
-                        <span className="scale-value">{l.value}</span>
-                        <span className="scale-label">{l.label}</span>
-                      </label>
-                    );
-                  })}
-                  {empty && <span className="muted small">Sem nota</span>}
+              {r.scaleLabels.length > 0 ? (
+                <>
+                  <div className="scale-row" style={{ ['--n' as string]: r.scaleLabels.length }} role="radiogroup" aria-labelledby={`${inputId}-title`} aria-describedby={c.description ? `${inputId}-desc` : undefined}>
+                    {r.scaleLabels.map((l) => {
+                      const checked = !empty && parseScore(v.raw) === l.value;
+                      return (
+                        <label key={l.value} className={`scale-opt band-${band(l.value)} ${checked ? 'selected' : ''} ${ro ? 'disabled' : ''}`}>
+                          <input
+                            type="radio"
+                            id={l.value === r.scaleLabels[0]!.value ? inputId : undefined}
+                            name={`crit-${evaluationId}-${c.id}`}
+                            checked={checked}
+                            disabled={ro}
+                            onChange={() => setScore(c.id, String(l.value))}
+                          />
+                          <span className="scale-value">{l.value}</span>
+                          <span className="scale-label">{l.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="criterion-foot">
+                    {done ? (
+                      <span className="small">
+                        Marcado: <strong>{chosenLabel ?? fmtPts(chosen!)}</strong>
+                      </span>
+                    ) : (
+                      <span className="muted small">Sem nota — toque em um nível da escala</span>
+                    )}
+                    {!ro && !empty && (
+                      <Button variant="ghost" className="btn-sm" aria-label={`Limpar nota do critério ${idx + 1}`} onClick={() => setScore(c.id, '')}>
+                        Limpar
+                      </Button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="score-row">
+                  <input
+                    id={inputId}
+                    className="score-input"
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={v.raw}
+                    disabled={ro}
+                    placeholder="sem nota"
+                    aria-invalid={!!err || undefined}
+                    aria-describedby={`${c.description ? `${inputId}-desc ` : ''}${inputId}-hint`}
+                    onChange={(e) => setScore(c.id, e.target.value)}
+                  />
+                  <span id={`${inputId}-hint`} className="muted small">
+                    {empty ? 'Sem nota' : err ? '' : `de ${scale.max}`}
+                  </span>
                   {!ro && !empty && (
-                    <Button variant="ghost" aria-label={`Limpar nota de ${c.title}`} onClick={() => update((s) => ({ ...s, scores: { ...s.scores, [c.id]: { ...v, raw: '' } } }))}>
+                    <Button variant="ghost" aria-label={`Limpar nota do critério ${idx + 1}`} onClick={() => setScore(c.id, '')}>
                       Limpar
                     </Button>
                   )}
                 </div>
-              ) : (
-              <div className="score-row">
-                <input
-                  id={inputId}
-                  className="score-input"
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={v.raw}
-                  disabled={ro}
-                  placeholder="sem nota"
-                  aria-invalid={!!err || undefined}
-                  aria-describedby={`${inputId}-desc ${inputId}-hint`}
-                  onChange={(e) => update((s) => ({ ...s, scores: { ...s.scores, [c.id]: { ...v, raw: e.target.value } } }))}
-                />
-                <span id={`${inputId}-hint`} className="muted small">
-                  {empty ? 'Sem nota' : err ? '' : `de ${scale.max}`}
-                </span>
-                {!ro && !empty && (
-                  <Button variant="ghost" aria-label={`Limpar nota de ${c.title}`} onClick={() => update((s) => ({ ...s, scores: { ...s.scores, [c.id]: { ...v, raw: '' } } }))}>
-                    Limpar
-                  </Button>
-                )}
-              </div>
               )}
               {err && (
                 <div className="error-text" role="alert">
@@ -431,9 +539,7 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
               )}
               {c.commentEnabled && (
                 <div className="field">
-                  <label htmlFor={`${inputId}-c`}>
-                    Justificativa{c.commentRequired ? ' (obrigatória)' : ''}
-                  </label>
+                  <label htmlFor={`${inputId}-c`}>Justificativa{c.commentRequired ? ' (obrigatória)' : ''}</label>
                   <textarea
                     id={`${inputId}-c`}
                     rows={2}
@@ -449,24 +555,33 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
         })}
       </ol>
 
-      <div className="field">
-        <label htmlFor={`general-${evaluationId}`}>{form.rubric.feedbackLabel || 'Observações gerais do projeto'}
-          {form.rubric.generalCommentRequired ? ' (obrigatório)' : ''}</label>
-        <textarea id={`general-${evaluationId}`} rows={4} value={values.general} disabled={ro} maxLength={10000} onChange={(e) => update((s) => ({ ...s, general: e.target.value }))} />
+      <div className="subtotal-line" aria-live="polite">
+        Subtotal do avaliador: <strong>{fmtPts(points)}</strong> / {fmtPts(maxPoints)}
+      </div>
+
+      <div className="field feedback-field" id={`general-wrap-${evaluationId}`}>
+        <label htmlFor={`general-${evaluationId}`}>
+          {r.feedbackLabel || 'Observações gerais do projeto'}
+          {r.generalCommentRequired ? ' (obrigatório)' : ''}
+        </label>
+        <p className="muted small">Escreva para o grupo: o que está bom, o que melhorar e por quê. O texto aparece no PDF da banca.</p>
+        <textarea id={`general-${evaluationId}`} rows={5} value={values.general} disabled={ro} maxLength={10000} onChange={(e) => update((s) => ({ ...s, general: e.target.value }))} />
+        <span className="muted small char-count">{values.general.length} / 10000</span>
       </div>
 
       {form.questions.length > 0 && (
         <fieldset className="votes">
-          <legend>Votação (independente das notas)</legend>
+          <legend>Votação</legend>
+          <p className="muted small">A votação é separada das notas e não altera a pontuação.</p>
           {form.questions.map((q) => (
-            <div key={q.id} className="vote-q" role="radiogroup" aria-labelledby={`vq-${q.id}`}>
+            <div key={q.id} id={`vq-wrap-${q.id}`} className="vote-q" role="radiogroup" aria-labelledby={`vq-${q.id}`}>
               <p id={`vq-${q.id}`}>
                 <strong>{q.title}</strong> — {q.prompt}
                 {q.required && <span className="req"> *</span>}
               </p>
               <div className="vote-options">
                 {q.options.map((o) => (
-                  <label key={o.id} className={`vote-opt ${values.votes[q.id] === o.id ? 'selected' : ''}`}>
+                  <label key={o.id} className={`vote-opt ${o.isAbstain ? 'is-abstain' : ''} ${values.votes[q.id] === o.id ? 'selected' : ''}`}>
                     <input
                       type="radio"
                       name={`vote-${evaluationId}-${q.id}`}
@@ -489,30 +604,41 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
       )}
 
       <div className="eval-foot">
-        <div>
-          <div>
-            Subtotal: <strong>{fmtPts(points)}</strong> / {fmtPts(maxPoints)}
-            {form.evaluation.aggregation === 'mean' && (
-              <span className="muted">
-                {' '}
-                · pontuação normalizada {preview ? formatScore(preview.score) : '—'} / 100
-              </span>
-            )}
+        <div className="eval-foot-main">
+          <div className="eval-foot-score">
+            <span className="eval-foot-label">Subtotal</span>
+            <span className="eval-foot-value">
+              <strong>{fmtPts(points)}</strong> / {fmtPts(maxPoints)}
+            </span>
+            {form.evaluation.aggregation === 'mean' && <span className="muted small eval-foot-norm"> · normalizada {preview ? formatScore(preview.score) : '—'} / 100</span>}
           </div>
-          {!ro && (
-            <div className={pendencies.length ? 'warn-text' : 'ok-text'}>
-              {pendencies.length ? (
-                <>
-                  <span aria-hidden="true">⚠ </span>
-                  {pendencies.length} pendência(s): {pendencies.join('; ')}
-                </>
-              ) : (
-                <>
-                  <span aria-hidden="true">✔ </span>Pronta para envio
-                </>
-              )}
-            </div>
-          )}
+          <div className="eval-progress" role="progressbar" aria-valuemin={0} aria-valuemax={r.criteria.length} aria-valuenow={answered} aria-label="Critérios avaliados">
+            <span style={{ width: `${progressPct}%` }} />
+          </div>
+          <div className="small muted">
+            {answered} de {r.criteria.length} critérios avaliados
+          </div>
+          {!ro &&
+            (pendencies.length ? (
+              <div className="warn-text pendency-list">
+                <span aria-hidden="true">⚠ </span>
+                Falta{pendencies.length > 1 ? 'm' : ''} {pendencies.length}:{' '}
+                {pendencyLinks.map((pl, i) => (
+                  <button key={i} type="button" className="link pendency-link" onClick={() => goTo(pl.target)}>
+                    {pl.label}
+                  </button>
+                ))}
+                {pendencyLinks[0] && (
+                  <button type="button" className="link pendency-next" onClick={() => goTo(pendencyLinks[0]!.target)}>
+                    ir para {pendencyLinks[0].label.toLowerCase()} →
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="ok-text">
+                <span aria-hidden="true">✔ </span>Pronta para envio
+              </div>
+            ))}
         </div>
         {!ro && (
           <Button
@@ -534,34 +660,62 @@ export function EvaluationForm({ evaluationId, onSubmitted }: { evaluationId: nu
         )}
       </div>
 
-      <Modal open={confirmOpen} onOpenChange={(v) => !submitting && setConfirmOpen(v)} title="Confirmar envio da avaliação" description={`${form.group.code} — ${form.group.title}`} wide>
-        <table className="table">
+      <Modal open={confirmOpen} onOpenChange={(v) => !submitting && setConfirmOpen(v)} title="Confirmar envio da avaliação" description={`${r.title} · ${form.group.code} — ${form.group.title}`} wide>
+        <table className="table confirm-table">
           <thead>
             <tr>
-              <th scope="col">Critério</th>
-              <th scope="col">Peso</th>
-              <th scope="col">Nota</th>
+              <th scope="col">Critério de avaliação</th>
+              <th scope="col" className="num">
+                Pontos
+              </th>
             </tr>
           </thead>
           <tbody>
-            {form.rubric.criteria.map((c) => (
-              <tr key={c.id}>
-                <td>{c.title}</td>
-                <td>{formatScore(c.weight, c.weight % 1 ? 1 : 0)}</td>
-                <td>{scoreMap.get(c.id) === null ? <em>sem nota</em> : formatScore(scoreMap.get(c.id)!, 1)}</td>
-              </tr>
-            ))}
+            {r.criteria.map((c, i) => {
+              const sc = scoreMap.get(c.id);
+              return (
+                <tr key={c.id}>
+                  <td>
+                    {i + 1}. {c.title}
+                  </td>
+                  <td className="num">
+                    {sc === null || sc === undefined ? (
+                      <em>sem nota</em>
+                    ) : (
+                      <>
+                        <strong>{fmtPts(sc)}</strong>
+                        {labelOf(sc) && <span className="muted small"> · {labelOf(sc)}</span>}
+                        {c.weight !== 1 && <span className="muted small"> × {formatScore(c.weight, c.weight % 1 ? 1 : 0)}</span>}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Subtotal do avaliador</th>
+              <td className="num">
+                <strong>
+                  {fmtPts(points)} / {fmtPts(maxPoints)}
+                </strong>
+              </td>
+            </tr>
+          </tfoot>
         </table>
+        {form.evaluation.aggregation === 'mean' && <p className="muted">Pontuação normalizada: {preview ? formatScore(preview.score) : '—'} / 100</p>}
+        {values.general.trim() && (
+          <div className="confirm-feedback">
+            <strong>{r.feedbackLabel || 'Observações gerais'}</strong>
+            <p className="pre">{values.general}</p>
+          </div>
+        )}
         {form.questions.map((q) => (
           <p key={q.id}>
             {q.title}: <strong>{q.options.find((o) => o.id === values.votes[q.id])?.label ?? 'sem voto'}</strong>
           </p>
         ))}
-        <p>
-          Subtotal do avaliador: <strong>{fmtPts(points)} / {fmtPts(maxPoints)}</strong>
-          {form.evaluation.aggregation === 'mean' && <> · pontuação normalizada {preview ? formatScore(preview.score) : '—'} / 100</>}
-        </p>
         <p className="muted">
           {form.evaluation.editPolicy === 'locked' ? 'Após o envio, a ficha não poderá ser editada (política da banca).' : 'Após o envio você ainda poderá editar até o fechamento, mas precisará reenviar.'}
         </p>

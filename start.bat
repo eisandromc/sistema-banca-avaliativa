@@ -38,12 +38,9 @@ if not exist ".env" (
 set "PORT_NUM=%PORT%"
 if not defined PORT_NUM for /f "tokens=1,* delims==" %%A in ('findstr /b /c:"PORT=" .env') do set "PORT_NUM=%%B"
 if not defined PORT_NUM set "PORT_NUM=3000"
-REM Banco do ambiente: DATABASE_URL_<AMBIENTE> (vazio = PGlite, que só um processo abre por vez).
-set "AMB=%AMBIENTE%"
-if not defined AMB for /f "tokens=1,* delims==" %%A in ('findstr /b /c:"AMBIENTE=" .env') do set "AMB=%%B"
-set "DB_URL="
-if defined AMB call set "DB_URL=%%DATABASE_URL_%AMB%%%"
-if not defined DB_URL if defined AMB for /f "tokens=1,* delims==" %%A in ('findstr /b /c:"DATABASE_URL_%AMB%=" .env') do set "DB_URL=%%B"
+REM Banco: DATABASE_URL (vazio = PGlite, que só um processo abre por vez).
+set "DB_URL=%DATABASE_URL%"
+if not defined DB_URL for /f "tokens=1,* delims==" %%A in ('findstr /b /c:"DATABASE_URL=" .env') do set "DB_URL=%%B"
 
 if /i "%MODE%"=="parar" (
   call :port_pid %PORT_NUM%

@@ -7,7 +7,7 @@ const MIGRATIONS_DIR = resolve(import.meta.dirname, 'migrations');
 
 /**
  * Aplica, em ordem e em transação, as migrações .sql ainda não registradas e, em seguida, garante os
- * dados de base (rubrica do Projeto Integrador), em qualquer ambiente e banco.
+ * dados de base (rubrica do Projeto Integrador), em qualquer banco.
  */
 export async function migrate(db: Database, log: (msg: string) => void = () => undefined): Promise<string[]> {
   await db.exec(`create table if not exists schema_migrations (

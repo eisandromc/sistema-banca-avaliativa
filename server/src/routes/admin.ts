@@ -5,6 +5,7 @@ import { getDayAccess, requireAdmin, requireUser } from '../auth/session.ts';
 import { badRequest, conflict, forbidden, notFound, paramId } from '../http.ts';
 import { audit } from '../audit.ts';
 import { softDelete } from '../services/trash.ts';
+import { duplicateDay, duplicateEvent } from '../services/duplicate.ts';
 import { hashPassword } from '../auth/password.ts';
 import { validateDayTimes } from '../../../shared/schedule.ts';
 import { fichasOfType, getDaySchedule, resolveAssignments, stageFromRow } from '../services/schedule.ts';
@@ -278,7 +279,7 @@ async function dayHasStarted(q: Queryable, dayId: number) {
 export async function adminRoutes(app: FastifyInstance) {
   const { db } = app.ctx;
 
-  /** Leitura do cronograma: administrador ou primário do dia. */
+  /** Leitura do cronograma: administrador ou Presidente da Banca do dia. */
   async function requireDayManager(req: FastifyRequest, dayId: number) {
     const user = requireUser(req);
     const access = await getDayAccess(db, user, dayId);
@@ -439,7 +440,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   /**
    * Define em quais dias o professor participa (lista completa): cria, atualiza a ficha ou remove
-   * a atribuição geral de cada dia. Não remove dia em que ele já tem fichas ou é o professor primário.
+   * a atribuição geral de cada dia. Não remove dia em que ele já tem fichas ou é o Presidente da Banca.
    */
   app.put('/users/:id/days', async (req) => {
     const admin = requireAdmin(req);
@@ -458,7 +459,7 @@ export async function adminRoutes(app: FastifyInstance) {
         if (wanted.has(c.day_id)) continue;
         const day = await q.one<any>('select label, date, primary_user_id from event_days where id = $1', [c.day_id]);
         const name = `${day.label || 'Dia'} (${day.date})`;
-        if (day.primary_user_id === userId) problems.push(`${name}: é o professor primário — troque o primário antes.`);
+        if (day.primary_user_id === userId) problems.push(`${name}: é o Presidente da Banca — troque o Presidente da Banca antes.`);
         else if (
           await q.one('select 1 from evaluations ev join schedule_entries se on se.id = ev.entry_id where se.day_id = $1 and ev.user_id = $2 limit 1', [c.day_id, userId])
         )
@@ -628,6 +629,22 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
+  /**
+   * Duplica a banca com a configuração necessária: dados, regras, logotipo, tipo de rubrica, dias e intervalos,
+   * perguntas de votação e escala de avaliadores. Com `includeGroups`, leva também grupos, materiais e distribuição.
+   * O andamento (cronômetro, avaliações, votos, fechamentos) nunca é copiado.
+   */
+  app.post('/events/:id/duplicate', async (req) => {
+    const admin = requireAdmin(req);
+    const id = paramId(req);
+    const body = z.object({ includeGroups: z.boolean().default(false) }).parse(req.body ?? {});
+    return db.tx(async (q) => {
+      const result = await duplicateEvent(q, id, body);
+      await audit(q, admin.id, 'event.duplicated', 'event', result.id, { from: id, includeGroups: body.includeGroups, ...result });
+      return result;
+    });
+  });
+
   // ---------- Dias e intervalos ----------
   app.post('/events/:id/days', async (req) => {
     const admin = requireAdmin(req);
@@ -667,6 +684,18 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
+  /** Duplica o dia na mesma banca: horários, intervalos, sala, perfil de tempo, Presidente da Banca e escala. Os grupos não vão (um grupo apresenta uma vez). */
+  app.post('/days/:id/duplicate', async (req) => {
+    const admin = requireAdmin(req);
+    const id = paramId(req);
+    const body = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD').optional() }).parse(req.body ?? {});
+    return db.tx(async (q) => {
+      const result = await duplicateDay(q, id, body);
+      await audit(q, admin.id, 'day.duplicated', 'event_day', result.id, { from: id, date: body.date ?? null, assignments: result.assignments });
+      return result;
+    });
+  });
+
   app.delete('/days/:id', async (req) => {
     const admin = requireAdmin(req);
     const id = paramId(req);
@@ -683,8 +712,8 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Designa (ou remove) o professor primário do dia — no máximo um ativo, com registro administrativo.
-   * O primário também avalia, igual aos demais: a designação exige uma rubrica e cria/atualiza
+   * Designa (ou remove) o Presidente da Banca do dia — no máximo um ativo, com registro administrativo.
+   * O Presidente da Banca também avalia, igual aos demais: a designação exige uma rubrica e cria/atualiza
    * a atribuição dele para todos os grupos do dia.
    */
   app.put('/days/:id/primary', async (req) => {
@@ -699,8 +728,8 @@ export async function adminRoutes(app: FastifyInstance) {
       let assignment: { id: number; created: boolean } | null = null;
       if (body.userId !== null) {
         const u = await q.one<any>('select role, active from users where id = $1 and deleted_at is null', [body.userId]);
-        if (!u || u.role !== 'teacher' || !u.active) throw badRequest('O professor primário deve ser um docente ativo.');
-        if (!body.rubricPosition) throw badRequest('Escolha a ficha que o professor primário vai preencher.');
+        if (!u || u.role !== 'teacher' || !u.active) throw badRequest('O Presidente da Banca deve ser um docente ativo.');
+        if (!body.rubricPosition) throw badRequest('Escolha a ficha que o Presidente da Banca vai preencher.');
         await requireFicha(q, id, body.rubricPosition);
         const existing = await q.one<{ id: number }>('select id from evaluator_assignments where day_id = $1 and user_id = $2 and group_id is null', [
           id,
@@ -1514,7 +1543,7 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
-  /** Copia a escala (atribuições gerais e professor primário) de outro dia — cada dia continua independente. */
+  /** Copia a escala (atribuições gerais e Presidente da Banca) de outro dia — cada dia continua independente. */
   app.post('/days/:id/assignments/copy', async (req) => {
     const admin = requireAdmin(req);
     const dayId = paramId(req);
@@ -1621,7 +1650,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const a = await q.one<any>('select * from evaluator_assignments where id = $1', [id]);
       if (!a) throw notFound();
       if (a.group_id === null && (await q.one('select 1 from event_days where id = $1 and primary_user_id = $2', [a.day_id, a.user_id]))) {
-        throw conflict('Este docente é o professor primário do dia e também avalia: troque o primário antes de remover a atribuição.', 'PRIMARY');
+        throw conflict('Este docente é o Presidente da Banca do dia e também avalia: troque o Presidente da Banca antes de remover a atribuição.', 'PRIMARY');
       }
       const evs = await q.one(
         `select 1 from evaluations ev join schedule_entries e on e.id = ev.entry_id

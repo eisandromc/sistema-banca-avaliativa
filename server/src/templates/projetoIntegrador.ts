@@ -191,7 +191,7 @@ export async function applyPiEventConfig(q: Queryable, eventId: number) {
 const PI_DOC_UPGRADE = 'pi_documento_original';
 
 /**
- * Executada após as migrações, em todo ambiente (servidor, `db:migrate`, testes): garante o tipo
+ * Executada após as migrações, em todo banco (servidor, `db:migrate`, testes): garante o tipo
  * "Projeto Integrador" com as 4 rubricas e atualiza uma única vez as bancas criadas por versões anteriores.
  */
 export async function ensurePiBaseline(db: Database) {

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 
-/** AMBIENTE é a única chave de ambiente: escolhe o banco e as regras; dados de demonstração só em TESTE (index.ts). */
-const KEYS = ['AMBIENTE', 'COOKIE_SECRET', 'TIMER_SPEED', 'COUNTDOWN_SECONDS', 'DATABASE_URL_PRODUCAO', 'PGLITE_DIR_TESTE'];
+/** Ambiente único: um só banco e as mesmas regras sempre; só os dados de demonstração são opcionais (DADOS_DEMO). */
+const KEYS = ['COOKIE_SECRET', 'TIMER_SPEED', 'COUNTDOWN_SECONDS', 'DATABASE_URL', 'PGLITE_DIR', 'DADOS_DEMO'];
 const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
 // Valor vazio já definido impede o .env local de preencher a variável.
 const env = (vars: Record<string, string>) => {
@@ -16,29 +16,37 @@ afterEach(() => {
   }
 });
 
-describe('AMBIENTE', () => {
-  it('é obrigatório e só aceita os três valores', () => {
+const SECRET = 'x'.repeat(32);
+
+describe('configuração (ambiente único)', () => {
+  it('exige COOKIE_SECRET com ao menos 32 caracteres', () => {
     env({});
-    expect(() => loadConfig()).toThrow(/Defina AMBIENTE/);
-    env({ AMBIENTE: 'producao-x' });
-    expect(() => loadConfig()).toThrow(/AMBIENTE inválido/);
-    env({ AMBIENTE: 'teste' });
-    expect(loadConfig().ambiente).toBe('TESTE');
+    expect(() => loadConfig()).toThrow(/COOKIE_SECRET/);
+    env({ COOKIE_SECRET: 'curto' });
+    expect(() => loadConfig()).toThrow(/COOKIE_SECRET/);
+    env({ COOKIE_SECRET: SECRET });
+    expect(loadConfig().cookieSecret).toBe(SECRET);
   });
 
-  it('cada ambiente usa o próprio banco', () => {
-    env({ AMBIENTE: 'TESTE', PGLITE_DIR_TESTE: '.data/outro' });
-    expect(loadConfig().pgliteDir).toMatch(/\.data\/outro$/);
-    env({ AMBIENTE: 'PRODUCAO', COOKIE_SECRET: 'x'.repeat(32), DATABASE_URL_PRODUCAO: 'postgres://h/db' });
+  it('um só banco: PGlite em .data/pglite ou, se definido, o PostgreSQL de DATABASE_URL', () => {
+    env({ COOKIE_SECRET: SECRET });
+    expect(loadConfig()).toMatchObject({ databaseUrl: null });
+    expect(loadConfig().pgliteDir).toMatch(/\.data\/pglite$/);
+    env({ COOKIE_SECRET: SECRET, DATABASE_URL: 'postgres://h/db' });
     expect(loadConfig().databaseUrl).toBe('postgres://h/db');
   });
 
-  it('PRODUCAO exige COOKIE_SECRET e recusa a aceleração; TESTE usa os mesmos padrões de uso real', () => {
-    env({ AMBIENTE: 'PRODUCAO' });
-    expect(() => loadConfig()).toThrow(/COOKIE_SECRET/);
-    env({ AMBIENTE: 'PRODUCAO', COOKIE_SECRET: 'x'.repeat(32), TIMER_SPEED: '60' });
-    expect(() => loadConfig()).toThrow(/TIMER_SPEED/);
-    env({ AMBIENTE: 'TESTE', TIMER_SPEED: '60' });
-    expect(loadConfig()).toMatchObject({ timerSpeed: 60, countdownSeconds: 10 });
+  it('dados de demonstração só com DADOS_DEMO=true', () => {
+    env({ COOKIE_SECRET: SECRET });
+    expect(loadConfig().dadosDemo).toBe(false);
+    env({ COOKIE_SECRET: SECRET, DADOS_DEMO: 'true' });
+    expect(loadConfig().dadosDemo).toBe(true);
+  });
+
+  it('TIMER_SPEED e COUNTDOWN_SECONDS seguem o que foi definido', () => {
+    env({ COOKIE_SECRET: SECRET });
+    expect(loadConfig()).toMatchObject({ timerSpeed: 1, countdownSeconds: 10 });
+    env({ COOKIE_SECRET: SECRET, TIMER_SPEED: '60' });
+    expect(loadConfig().timerSpeed).toBe(60);
   });
 });

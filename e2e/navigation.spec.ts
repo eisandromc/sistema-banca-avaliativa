@@ -27,8 +27,8 @@ test('tela inicial: três acessos diretos, sem menu de áreas', async ({ page })
   await expect(page.getByText('Somente administradores acessam a configuração.')).toBeVisible();
 });
 
-test('telão: segue sozinho o dia ativado pelo primário, sem seleção; barra some quando ociosa', async ({ page, browser }) => {
-  // A primária (Ana) controla o telão pela API da própria sessão.
+test('telão: segue sozinho o dia ativado pelo Presidente da Banca, sem seleção; barra some quando ociosa', async ({ page, browser }) => {
+  // A Presidente da Banca (Ana) controla o telão pela API da própria sessão.
   const actx = await browser.newContext();
   const ana = await actx.newPage();
   await ana.goto('/login');
@@ -77,8 +77,8 @@ test('configuração: roteiro de preparação aponta pendências e leva à seç�
   const incompleto = page.locator('section', { has: page.getByRole('heading', { name: /Dia 2 — preparação incompleta/ }) });
   await expect(incompleto.getByText('Grupos sem avaliador: C-10.')).toBeVisible();
   await incompleto.getByRole('button', { name: 'Resolver: Avaliadores' }).click();
-  await expect(page.getByRole('tab', { name: 'Primário e avaliadores' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Primário e avaliadores', level: 2 })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Presidente da Banca e avaliadores' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Presidente da Banca e avaliadores', level: 2 })).toBeVisible();
 });
 
 test('celular (390 px): nenhuma seção da Configuração transborda a largura da tela', async ({ browser }) => {

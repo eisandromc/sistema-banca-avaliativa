@@ -116,7 +116,7 @@ const SECTIONS: Array<{ label: string; hint?: string; tabs: TabDef[] }> = [
       { id: 'bancas', step: 4, label: 'Banca e dias', description: 'Dados da banca, o tipo de rubrica que ela usa, os dias (data, horário, sala, perfil de tempo) e o documento PDF.' },
       { id: 'grupos', step: 5, label: 'Grupos', description: 'Cada grupo com título, resumo, alunos, orientadores, materiais (PDF, apresentação, link) e cor de identificação.' },
       { id: 'distribuicao', step: 6, label: 'Distribuição nos dias', description: 'Arraste os grupos para o dia em que se apresentam e defina a ordem. Os horários previstos são calculados sozinhos.' },
-      { id: 'avaliadores', step: 7, label: 'Primário e avaliadores', description: 'Em cada dia: quem conduz a banca (professor primário) e quem avalia, com qual ficha do tipo de rubrica da banca.' },
+      { id: 'avaliadores', step: 7, label: 'Presidente da Banca e avaliadores', description: 'Em cada dia: quem conduz a banca (Presidente da Banca) e quem avalia, com qual ficha do tipo de rubrica da banca.' },
       { id: 'votacao', step: 8, label: 'Votação (opcional)', description: 'Perguntas votadas pelos avaliadores junto com a ficha (ex.: indicação para a feira).' },
     ],
   },
@@ -189,7 +189,7 @@ export function ConfiguracaoPage() {
     return (
       <div className="page narrow">
         <h1>Configuração</h1>
-        <Alert kind="warn">Somente administradores acessam a configuração. Professores primários conduzem a sessão e o fechamento pela área Professor.</Alert>
+        <Alert kind="warn">Somente administradores acessam a configuração. Presidentes da Banca conduzem a sessão e o fechamento pela área Professor.</Alert>
       </div>
     );
   return <ConfigShell />;

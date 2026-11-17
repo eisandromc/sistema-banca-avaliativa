@@ -4,8 +4,8 @@ import { mkdirSync } from 'node:fs';
 
 /**
  * Abstração mínima sobre PostgreSQL. Duas implementações com o mesmo SQL:
- *  - `pg` (node-postgres) quando DATABASE_URL_<AMBIENTE> está definido — servidor PostgreSQL real;
- *  - PGlite (PostgreSQL compilado para WASM) para desenvolvimento local e testes.
+ *  - `pg` (node-postgres) quando DATABASE_URL está definido — servidor PostgreSQL real;
+ *  - PGlite (PostgreSQL compilado para WASM) quando DATABASE_URL está vazio (e nos testes).
  *
  * IMPORTANTE: dentro de `tx(fn)`, use apenas o `q` recebido (PGlite tem uma única conexão).
  */

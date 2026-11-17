@@ -72,7 +72,7 @@ export async function buildApp(config: AppConfig, opts: { db?: Database; logger?
       await api.register(closureRoutes);
       await api.register(adminRoutes);
       await api.register(trashRoutes);
-      api.get('/health', async () => ({ ok: true, db: db.kind, timerSpeed: config.timerSpeed, ambiente: config.ambiente }));
+      api.get('/health', async () => ({ ok: true, db: db.kind, timerSpeed: config.timerSpeed }));
     },
     { prefix: '/api' },
   );

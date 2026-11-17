@@ -149,11 +149,9 @@ PORT_NUM="${PORT:-$(env_value PORT)}"
 PORT_NUM="${PORT_NUM:-3000}"
 HOST_NAME="$(env_value HOST)"
 HOST_NAME="${HOST_NAME:-127.0.0.1}"
-# Com PGlite (DATABASE_URL_<AMBIENTE> vazio) o banco é uma pasta que só um processo pode abrir por vez.
+# Com PGlite (DATABASE_URL vazio) o banco é uma pasta que só um processo pode abrir por vez.
 USES_PGLITE=1
-AMBIENTE_NOME="$(printf '%s' "${AMBIENTE:-$(env_value AMBIENTE)}" | tr '[:lower:]' '[:upper:]')"
-DB_URL_KEY="DATABASE_URL_$AMBIENTE_NOME"
-[ -n "$(printenv "$DB_URL_KEY")$(env_value "$DB_URL_KEY")" ] && USES_PGLITE=0
+[ -n "$(printenv DATABASE_URL)$(env_value DATABASE_URL)" ] && USES_PGLITE=0
 INTERACTIVE=0
 [ -t 0 ] && [ -t 1 ] && INTERACTIVE=1
 

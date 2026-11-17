@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../../lib/api.ts';
-import { ActionButton, Alert, Button, Empty, ErrorBox, Field, Modal, Spinner, Struck, useLoad } from '../../components/ui.tsx';
+import { ActionButton, Alert, Button, Empty, ErrorBox, Field, Modal, Spinner, useLoad } from '../../components/ui.tsx';
 import { NeedEvent, useConfig } from '../Configuracao.tsx';
 import { dayLabel, fmtBytes } from '../../lib/format.ts';
 import { GROUP_COLORS, GROUP_FILE_MAX_BYTES, GROUP_FILE_TYPES, fileExtension, isGithubLink, isSafeLink, nextGroupColor, type GroupFileKind } from '@shared/groups.ts';
-import { OrderBadge, namesList } from '../../components/ProjectMaterials.tsx';
+import { OrderBadge } from '../../components/ProjectMaterials.tsx';
+import { GroupCardBody } from '../../components/GroupCard.tsx';
 import { useRubrics } from './rubricOptions.tsx';
 import type { GroupFile } from '../../lib/types.ts';
 
@@ -79,55 +80,39 @@ function GroupsInner() {
             const day = event!.days.find((d) => d.id === g.dayId);
             return (
               <li key={g.id} className="group-card" style={{ ['--group-color' as string]: g.color }}>
-                <div className="group-card-head">
-                  <span className="color-dot" style={{ background: g.color }} aria-hidden="true" />
-                  <strong>{g.code}</strong>
-                  {g.className && <span className="muted">{g.className}</span>}
-                  <span className="spacer" />
-                  {day ? (
-                    <span className="pill">
-                      {day.label || dayLabel(day)} · <OrderBadge position={g.position} color={g.color} />
-                    </span>
-                  ) : (
-                    <span className="pill pill-warn">sem dia</span>
-                  )}
-                </div>
-                <p className="group-card-title">{g.title}</p>
-                <p className="small muted">
-                  {g.advisors.length ? `Orientação: ${namesList(g.advisors)}` : 'Sem orientador informado'} · {g.students.length} aluno(s)
-                </p>
-                <div className="group-card-tags">
-                  {g.description && <span className="tag">Resumo</span>}
-                  {(g.slidesFile || g.slidesUrl) && <span className="tag">Apresentação</span>}
-                  {(g.articleFile || g.pdfUrl) && <span className="tag">Artigo</span>}
-                  {g.projectUrl && <span className="tag">Link</span>}
-                  {g.githubUrl && <span className="tag">GitHub</span>}
-                  {g.rubricTypeId && (
-                    <span className="tag tag-info">
-                      Rubrica: <Struck deleted={rub.data?.types.find((t) => t.id === g.rubricTypeId)?.deleted}>{typeName(g.rubricTypeId)}</Struck>
-                    </span>
-                  )}
-                  {g.started && <span className="tag tag-ok">já se apresentou</span>}
-                </div>
-                <div className="row-actions">
-                  <Button variant="edit" className="btn-sm" onClick={() => setEditing(g)} aria-label={`Editar ${g.code}`}>
-                    Editar
-                  </Button>
-                  {!g.started && (
-                    <ActionButton
-                      variant="delete"
-                      className="btn-sm"
-                      aria-label={`Excluir ${g.code}`}
-                      onAction={async () => {
-                        if (!window.confirm(`Mover ${g.code} para a lixeira? Ele sai do cronograma e pode ser restaurado depois.`)) return;
-                        await api.del(`/api/groups/${g.id}`);
-                        await reload(true);
-                      }}
-                    >
-                      Excluir
-                    </ActionButton>
-                  )}
-                </div>
+                <GroupCardBody
+                  g={g}
+                  aside={
+                    day ? (
+                      <span className="pill">
+                        {day.label || dayLabel(day)} · <OrderBadge position={g.position} color={g.color} />
+                      </span>
+                    ) : (
+                      <span className="pill pill-warn">sem dia</span>
+                    )
+                  }
+                  actions={
+                    <>
+                      <Button variant="edit" className="btn-sm" onClick={() => setEditing(g)} aria-label={`Editar ${g.code}`}>
+                        Editar
+                      </Button>
+                      {!g.started && (
+                        <ActionButton
+                          variant="delete"
+                          className="btn-sm"
+                          aria-label={`Excluir ${g.code}`}
+                          onAction={async () => {
+                            if (!window.confirm(`Mover ${g.code} para a lixeira? Ele sai do cronograma e pode ser restaurado depois.`)) return;
+                            await api.del(`/api/groups/${g.id}`);
+                            await reload(true);
+                          }}
+                        >
+                          Excluir
+                        </ActionButton>
+                      )}
+                    </>
+                  }
+                />
               </li>
             );
           })}

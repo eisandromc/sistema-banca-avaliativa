@@ -89,9 +89,9 @@ export function AccountsTab() {
         </table>
       </div>
       <p className="small muted">
-        O <strong>professor primário</strong> e os <strong>avaliadores</strong> são definidos por dia, depois de montar a banca:{' '}
+        O <strong>Presidente da Banca</strong> e os <strong>avaliadores</strong> são definidos por dia, depois de montar a banca:{' '}
         <button type="button" className="link" onClick={() => goTo('avaliadores')}>
-          etapa 7 — Primário e avaliadores
+          etapa 7 — Presidente da Banca e avaliadores
         </button>
         . Contas de telão só veem o cronômetro.
       </p>
@@ -100,7 +100,7 @@ export function AccountsTab() {
   );
 }
 
-/** Etapa 7 — em cada dia: quem conduz (primário) e quem avalia, com qual ficha do tipo de rubrica da banca. */
+/** Etapa 7 — em cada dia: quem conduz (Presidente da Banca) e quem avalia, com qual ficha do tipo de rubrica da banca. */
 export function EvaluatorsTab() {
   return (
     <NeedDay>
@@ -146,9 +146,9 @@ function EvaluatorsInner() {
 
       <section className="card step-card">
         <div className="card-title">
-          <h3>Professor primário — {dayLabel(day)}</h3>
+          <h3>Presidente da Banca — {dayLabel(day)}</h3>
           <Button variant="edit" onClick={() => setPrimaryOpen(true)}>
-            {primary ? 'Alterar primário' : 'Designar primário'}
+            {primary ? 'Alterar Presidente da Banca' : 'Designar Presidente da Banca'}
           </Button>
         </div>
         {primary ? (
@@ -160,7 +160,7 @@ function EvaluatorsInner() {
             {fichaLabel(fichas, day.primaryRubricPosition) ?? <span className="warn-text">ficha não definida</span>}.
           </p>
         ) : (
-          <Alert kind="warn">Nenhum primário designado: sem ele ninguém conduz o cronômetro deste dia.</Alert>
+          <Alert kind="warn">Nenhum Presidente da Banca designado: sem ele ninguém conduz o cronômetro deste dia.</Alert>
         )}
       </section>
 
@@ -225,7 +225,7 @@ function Assignments({ day, fichas, onChanged }: { day: EventData['days'][number
                 <tr key={x.id}>
                   <td>
                     <Struck deleted={x.userDeleted}>{x.userName}</Struck>
-                    {x.userId === day.primaryUserId && x.groupId === null && <span className="pill pill-info">primário</span>}
+                    {x.userId === day.primaryUserId && x.groupId === null && <span className="pill pill-info">Presidente da Banca</span>}
                   </td>
                   <td>{x.groupCode ? `Somente ${x.groupCode}` : 'Todos os grupos do dia'}</td>
                   <td>
@@ -318,7 +318,7 @@ function Assignments({ day, fichas, onChanged }: { day: EventData['days'][number
         <details className="more">
           <summary>Copiar a escala de outro dia</summary>
           <div className="row gap wrap align-end">
-            <Field label="Dia de origem" hint="Copia as atribuições gerais (e, se marcado, o primário). Depois ajuste livremente este dia.">
+            <Field label="Dia de origem" hint="Copia as atribuições gerais (e, se marcado, o Presidente da Banca). Depois ajuste livremente este dia.">
               {(p) => (
                 <select {...p} value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)}>
                   <option value="">Selecione…</option>
@@ -331,7 +331,7 @@ function Assignments({ day, fichas, onChanged }: { day: EventData['days'][number
               )}
             </Field>
             <label className="checkbox">
-              <input type="checkbox" checked={copyPrimary} onChange={(e) => setCopyPrimary(e.target.checked)} /> Copiar também o professor primário
+              <input type="checkbox" checked={copyPrimary} onChange={(e) => setCopyPrimary(e.target.checked)} /> Copiar também o Presidente da Banca
             </label>
             <ActionButton
               disabled={!copyFrom}
@@ -358,7 +358,7 @@ function Assignments({ day, fichas, onChanged }: { day: EventData['days'][number
   );
 }
 
-/** Designa o professor primário do dia: conduz o tempo e também avalia, com a ficha escolhida. */
+/** Designa o Presidente da Banca do dia: conduz o tempo e também avalia, com a ficha escolhida. */
 function PrimaryDialog({ day, fichas, onClose, onSaved }: { day: EventData['days'][number]; fichas: Ficha[]; onClose: () => void; onSaved: () => Promise<void> }) {
   const { users } = useConfig();
   const toast = useToast();
@@ -379,7 +379,7 @@ function PrimaryDialog({ day, fichas, onClose, onSaved }: { day: EventData['days
       });
       toast.push({
         kind: 'success',
-        text: remove ? 'Professor primário removido.' : 'Professor primário designado; ele também receberá as fichas de avaliação.',
+        text: remove ? 'Presidente da Banca removido.' : 'Presidente da Banca designado; ele também receberá as fichas de avaliação.',
       });
       await onSaved();
     } catch (e) {
@@ -392,8 +392,8 @@ function PrimaryDialog({ day, fichas, onClose, onSaved }: { day: EventData['days
     <Modal
       open
       onOpenChange={(v) => !v && onClose()}
-      title={`Professor primário — ${dayLabel(day)}`}
-      description="O primário avalia os grupos como os demais professores e, além disso, conduz a sessão: ativa o telão, seleciona o grupo, controla o cronômetro e confere/fecha as avaliações. A troca fica registrada na auditoria."
+      title={`Presidente da Banca — ${dayLabel(day)}`}
+      description="O Presidente da Banca avalia os grupos como os demais professores e, além disso, conduz a sessão: ativa o telão, seleciona o grupo, controla o cronômetro e confere/fecha as avaliações. A troca fica registrada na auditoria."
     >
       <Field label="Docente" required>
         {(p) => (
@@ -415,7 +415,7 @@ function PrimaryDialog({ day, fichas, onClose, onSaved }: { day: EventData['days
       <div className="dialog-actions">
         {day.primaryUserId && (
           <Button variant="delete" disabled={busy} onClick={() => void save(true)}>
-            Remover primário
+            Remover Presidente da Banca
           </Button>
         )}
         <Button onClick={onClose} disabled={busy}>
@@ -490,7 +490,7 @@ function UserDialog({
             checked: !!m?.assigned,
             rubricPosition: m?.rubricPosition ?? null,
             isPrimary: !!m?.isPrimary,
-            locked: m?.isPrimary ? 'professor primário deste dia' : m?.hasEvaluations ? 'já possui fichas neste dia' : null,
+            locked: m?.isPrimary ? 'Presidente da Banca deste dia' : m?.hasEvaluations ? 'já possui fichas neste dia' : null,
           };
         }),
       ),

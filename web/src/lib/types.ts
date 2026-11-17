@@ -1,3 +1,4 @@
+import type { GroupMaterials } from '@shared/groups.ts';
 import type { Stage, TimerStatus } from '@shared/timer.ts';
 
 export type Role = 'admin' | 'teacher' | 'viewer';
@@ -83,6 +84,8 @@ export interface ScheduleRow {
   submittedEvaluators: number;
   excusedEvaluators: number;
   closureVersion: number | null;
+  /** O que o grupo já tem cadastrado (resumo, orientadores, alunos, GitHub, artigo, apresentação, link). */
+  materials: GroupMaterials;
 }
 
 export interface DayInfo {
@@ -185,7 +188,7 @@ export interface Workspace {
   event: { id: number; name: string; editAfterSubmit: string; warnPct: number; dangerPct: number };
   access: DayAccess;
   primaryName: string | null;
-  entries: Array<ScheduleRow & { assignedToMe: boolean; myEvaluationId: number | null; myEvaluationStatus: string | null }>;
+  entries: Array<ScheduleRow & { students: string[]; assignedToMe: boolean; myEvaluationId: number | null; myEvaluationStatus: string | null }>;
   warnings: string[];
   predictedEnd: string | null;
   current:

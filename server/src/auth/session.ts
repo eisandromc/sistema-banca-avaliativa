@@ -118,7 +118,7 @@ export async function requireDayController(q: Queryable, req: FastifyRequest, da
   const user = requireUser(req);
   const access = await getDayAccess(q, user, dayId);
   if (!access.canControl) {
-    throw forbidden('Somente o professor primário deste dia ou um administrador pode controlar a sessão.');
+    throw forbidden('Somente o Presidente da Banca deste dia ou um administrador pode controlar a sessão.');
   }
   return { user, access };
 }

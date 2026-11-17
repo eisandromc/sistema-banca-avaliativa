@@ -19,7 +19,7 @@ import type { DaySchedule } from '../../lib/types.ts';
 import { Button, Empty, ErrorBox, Spinner, useLoad, useToast } from '../../components/ui.tsx';
 import { NeedEvent, useConfig, type EventData } from '../Configuracao.tsx';
 import { dayLabel } from '../../lib/format.ts';
-import { OrderBadge } from '../../components/ProjectMaterials.tsx';
+import { GroupCardBody } from '../../components/GroupCard.tsx';
 import { ScheduleTab } from './Schedule.tsx';
 import type { Group } from './Groups.tsx';
 
@@ -200,7 +200,13 @@ function Board() {
             );
           })}
         </div>
-        <DragOverlay>{dragged ? <CardFace g={dragged} position={null} time={null} overflow={false} lifted /> : null}</DragOverlay>
+        <DragOverlay>
+          {dragged ? (
+            <div className="group-card board-card is-lifted" style={{ ['--group-color' as string]: dragged.color }}>
+              <GroupCardBody g={dragged} hideMaterials />
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );
@@ -216,22 +222,14 @@ function Column({ id, highlight, empty, unplaced, children }: { id: string; high
   );
 }
 
-function CardFace({ g, position, time, overflow, lifted }: { g: Group; position: number | null; time: string | null; overflow: boolean; lifted?: boolean }) {
+/** Aside do card na distribuição: a hora prevista (ou "sem dia"), no lugar da etiqueta de dia da aba Grupos. */
+function TimePill({ time, overflow }: { time: string | null; overflow: boolean }) {
+  if (!time) return <span className="pill pill-warn">sem dia</span>;
   return (
-    <div className={`board-card-face ${lifted ? 'is-lifted' : ''}`} style={{ ['--group-color' as string]: g.color }}>
-      {position !== null ? <OrderBadge position={position} color={g.color} /> : <span className="color-dot" style={{ background: g.color }} aria-hidden="true" />}
-      <span className="board-card-text">
-        <strong>{g.code}</strong> <span className="muted small">{g.className}</span>
-        <span className="board-card-title">{g.title}</span>
-        {time && (
-          <span className={`small ${overflow ? 'warn-text' : 'muted'}`}>
-            Previsto {time}
-            {overflow && ' · após o término do dia'}
-          </span>
-        )}
-        {g.started && <span className="small muted">Já se apresentou (fixo neste dia)</span>}
-      </span>
-    </div>
+    <span className={`pill ${overflow ? 'pill-warn' : ''}`} title={overflow ? 'Previsto após o término do dia' : undefined}>
+      Previsto {time}
+      {overflow && ' · após o término'}
+    </span>
   );
 }
 
@@ -258,11 +256,21 @@ function Card({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cardId(g.id) });
   return (
-    <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`board-card ${isDragging ? 'is-dragging' : ''}`}>
-      <button type="button" className="drag-handle" {...attributes} {...listeners} aria-label={`Arrastar ${g.code}${position ? ` (posição ${position})` : ''}`}>
-        ⠿
-      </button>
-      <CardFace g={g} position={position} time={time} overflow={overflow} />
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, ['--group-color' as string]: g.color }}
+      className={`group-card board-card ${isDragging ? 'is-dragging' : ''}`}
+    >
+      <GroupCardBody
+        g={g}
+        position={position}
+        lead={
+          <button type="button" className="drag-handle" {...attributes} {...listeners} aria-label={`Arrastar ${g.code}${position ? ` (posição ${position})` : ''}`}>
+            ⠿
+          </button>
+        }
+        aside={<TimePill time={time} overflow={overflow} />}
+      />
       <div className="board-card-actions">
         {(onUp || onDown) && (
           <>
